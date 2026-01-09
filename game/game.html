@@ -1,0 +1,1571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0a0a0f">
+    <title>Rhythm Rush</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0a0a0f 0%, #1a0a2e 100%);
+            color: #ffffff;
+            overflow: hidden;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        /* Telegram safe area */
+        #app {
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #gameCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: -webkit-optimize-contrast;
+            image-rendering: crisp-edges;
+            image-rendering: pixelated;
+        }
+
+        #fpsCounter {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 255, 255, 0.3);
+            color: #00ffff;
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+            z-index: 200;
+            display: none;
+        }
+
+        /* UI Overlays */
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: rgba(10, 10, 15, 0.95);
+            z-index: 100;
+            padding: 20px;
+        }
+
+        .screen.active {
+            display: flex;
+        }
+
+        .screen h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff;
+            animation: glow 2s ease-in-out infinite;
+        }
+
+        @keyframes glow {
+            0%, 100% { text-shadow: 0 0 20px #00ffff, 0 0 40px #00ffff; }
+            50% { text-shadow: 0 0 30px #00ffff, 0 0 60px #00ffff, 0 0 80px #00ffff; }
+        }
+
+        .button {
+            padding: 15px 40px;
+            margin: 10px;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #fff;
+            background: linear-gradient(135deg, #ff006e 0%, #8338ec 100%);
+            border: 2px solid #00ffff;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
+            min-width: 200px;
+        }
+
+        .button:hover, .button:active {
+            transform: scale(1.05);
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.6);
+        }
+
+        .button:active {
+            transform: scale(0.98);
+        }
+
+        .difficulty-selector {
+            display: flex;
+            gap: 15px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .difficulty-btn {
+            padding: 12px 30px;
+            font-size: 1.1em;
+            color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid #444;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .difficulty-btn.selected {
+            background: linear-gradient(135deg, #ff006e 0%, #8338ec 100%);
+            border-color: #00ffff;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+        }
+
+        .stats {
+            margin: 20px 0;
+            font-size: 1.5em;
+            line-height: 1.8;
+            text-align: center;
+        }
+
+        .stats div {
+            margin: 10px 0;
+        }
+
+        .stat-label {
+            color: #00ffff;
+            font-weight: bold;
+        }
+
+        .calibration-info {
+            max-width: 600px;
+            text-align: center;
+            line-height: 1.8;
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            border: 1px solid rgba(0, 255, 255, 0.3);
+        }
+
+        .settings-summary {
+            max-width: 600px;
+            background: rgba(0, 255, 255, 0.1);
+            border: 2px solid rgba(0, 255, 255, 0.5);
+            border-radius: 10px;
+            padding: 15px 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .settings-summary div {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 1.1em;
+        }
+
+        .settings-label {
+            color: #00ffff;
+            font-weight: bold;
+        }
+
+        .settings-value {
+            color: #ffffff;
+            font-weight: bold;
+        }
+
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin: 15px 0;
+            max-width: 400px;
+        }
+
+        .slider-label {
+            color: #00ffff;
+            font-weight: bold;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .slider-value {
+            background: rgba(0, 255, 255, 0.3);
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            border-radius: 5px;
+            background: linear-gradient(90deg, #ff006e, #8338ec);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #00ffff;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #00ffff;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.8);
+        }
+
+        .calibration-display {
+            font-size: 2em;
+            margin: 20px 0;
+            color: #00ffff;
+            font-weight: bold;
+        }
+
+        .tap-zone {
+            width: 200px;
+            height: 200px;
+            margin: 20px 0;
+            background: linear-gradient(135deg, rgba(255, 0, 110, 0.3) 0%, rgba(131, 56, 236, 0.3) 100%);
+            border: 3px solid #00ffff;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5em;
+            cursor: pointer;
+            transition: all 0.1s;
+            box-shadow: 0 0 30px rgba(0, 255, 255, 0.4);
+        }
+
+        .tap-zone:active {
+            transform: scale(0.95);
+            box-shadow: 0 0 50px rgba(0, 255, 255, 0.8);
+        }
+
+        /* Loading screen */
+        .loading {
+            font-size: 1.5em;
+            color: #00ffff;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .screen h1 {
+                font-size: 2em;
+            }
+            .button {
+                font-size: 1em;
+                padding: 12px 30px;
+                min-width: 150px;
+            }
+            .stats {
+                font-size: 1.2em;
+            }
+        }
+
+        @media (max-height: 600px) {
+            .screen h1 {
+                font-size: 1.5em;
+                margin-bottom: 10px;
+            }
+            .button {
+                padding: 10px 25px;
+                margin: 5px;
+            }
+            .stats {
+                font-size: 1em;
+                line-height: 1.5;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <canvas id="gameCanvas"></canvas>
+        <div id="fpsCounter"></div>
+
+        <!-- Calibration Screen -->
+        <div id="calibrationScreen" class="screen active">
+            <h1>🎵 RHYTHM RUSH 🎵</h1>
+            <div id="calibrationPhase">
+                <div class="calibration-info">
+                    <p>Welcome! First, let's calibrate audio latency for perfect timing.</p>
+                    <p><strong>Tap the zone below in rhythm with the beats.</strong></p>
+                    <p>We'll calculate the optimal delay automatically.</p>
+                </div>
+                <div class="tap-zone" id="tapZone">TAP HERE</div>
+                <div class="calibration-display" id="calibrationDisplay">Taps: 0/10</div>
+                <button class="button" id="skipCalibration">Skip Calibration</button>
+            </div>
+
+            <div id="settingsPhase" style="display: none; width: 100%; max-width: 600px;">
+                <div class="slider-container">
+                    <div class="slider-label">
+                        Audio Latency
+                        <span class="slider-value" id="latencyValue">0ms</span>
+                    </div>
+                    <input type="range" id="latencySlider" min="-200" max="200" value="0" step="10">
+                </div>
+
+                <div class="slider-container">
+                    <div class="slider-label">
+                        Difficulty Multiplier
+                        <span class="slider-value" id="difficultyValue">1.0x</span>
+                    </div>
+                    <input type="range" id="difficultyMultiplier" min="0.8" max="1.5" value="1.0" step="0.1">
+                </div>
+
+                <div class="settings-summary">
+                    <div>
+                        <span class="settings-label">Audio Latency:</span>
+                        <span class="settings-value" id="summaryLatency">0ms</span>
+                    </div>
+                    <div>
+                        <span class="settings-label">Difficulty:</span>
+                        <span class="settings-value" id="summaryDifficulty">Normal</span>
+                    </div>
+                    <div>
+                        <span class="settings-label">Hit Window:</span>
+                        <span class="settings-value" id="summaryHitWindow">±100ms</span>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                    <button class="button" id="testSoundButton">Test Sound</button>
+                    <button class="button" id="startGameButton">Start Game</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Menu Screen -->
+        <div id="menuScreen" class="screen">
+            <h1>🎵 RHYTHM RUSH 🎵</h1>
+            <div class="difficulty-selector">
+                <button class="difficulty-btn selected" data-difficulty="easy">Easy</button>
+                <button class="difficulty-btn" data-difficulty="medium">Medium</button>
+                <button class="difficulty-btn" data-difficulty="hard">Hard</button>
+                <button class="difficulty-btn" data-difficulty="extreme">Extreme</button>
+            </div>
+            <button class="button" id="startButton">START GAME</button>
+            <button class="button" id="recalibrateButton">Recalibrate Audio</button>
+        </div>
+
+        <!-- Pause Screen -->
+        <div id="pauseScreen" class="screen">
+            <h1>PAUSED</h1>
+            <button class="button" id="resumeButton">Resume</button>
+            <button class="button" id="restartButton">Restart</button>
+            <button class="button" id="quitButton">Quit to Menu</button>
+        </div>
+
+        <!-- Game Over Screen -->
+        <div id="gameOverScreen" class="screen">
+            <h1>GAME OVER</h1>
+            <div class="stats">
+                <div><span class="stat-label">Score:</span> <span id="finalScore">0</span></div>
+                <div><span class="stat-label">Max Combo:</span> <span id="finalCombo">0</span></div>
+                <div><span class="stat-label">Accuracy:</span> <span id="finalAccuracy">0%</span></div>
+                <div><span class="stat-label">Perfect:</span> <span id="finalPerfect">0</span></div>
+                <div><span class="stat-label">Good:</span> <span id="finalGood">0</span></div>
+                <div><span class="stat-label">Miss:</span> <span id="finalMiss">0</span></div>
+            </div>
+            <button class="button" id="playAgainButton">Play Again</button>
+            <button class="button" id="menuButton">Main Menu</button>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // CONFIGURATION
+        // ============================================
+        const CONFIG = {
+            FPS: 60,
+            FRAME_TIME: 1000 / 60,
+
+            // Canvas
+            CANVAS_WIDTH: 800,
+            CANVAS_HEIGHT: 1200,
+
+            // Lanes
+            LANES: 3,
+            LANE_WIDTH: 150,
+
+            // Notes
+            NOTE_RADIUS: 40,
+            NOTE_SPEED: 6,
+            HIT_ZONE_Y: 1050,
+            HIT_ZONE_HEIGHT: 100,
+
+            // Timing windows (ms)
+            TIMING: {
+                PERFECT: 50,
+                GOOD: 100,
+                OK: 150
+            },
+
+            // Scoring
+            SCORE: {
+                PERFECT: 100,
+                GOOD: 50,
+                OK: 25,
+                MISS: 0
+            },
+
+            // HP
+            MAX_HP: 100,
+            HP_DRAIN_RATE: 0.05,
+            HP_GAIN: {
+                PERFECT: 2,
+                GOOD: 1,
+                OK: 0.5,
+                MISS: -10
+            },
+
+            // Colors
+            COLORS: {
+                BG: '#0a0a0f',
+                BG_GRADIENT: '#1a0a2e',
+                LANE: 'rgba(0, 255, 255, 0.1)',
+                LANE_BORDER: 'rgba(0, 255, 255, 0.3)',
+                HIT_ZONE: 'rgba(255, 0, 110, 0.3)',
+                NOTE: '#00ffff',
+                NOTE_GLOW: 'rgba(0, 255, 255, 0.5)',
+                PERFECT: '#00ff00',
+                GOOD: '#ffff00',
+                OK: '#ff9900',
+                MISS: '#ff0000'
+            }
+        };
+
+        // Difficulty multipliers
+        const DIFFICULTY = {
+            easy: { speed: 0.7, spawnRate: 1.5, hpDrain: 0.5, hitWindow: 150 },
+            medium: { speed: 1.0, spawnRate: 1.0, hpDrain: 1.0, hitWindow: 100 },
+            hard: { speed: 1.3, spawnRate: 0.7, hpDrain: 1.5, hitWindow: 80 },
+            extreme: { speed: 1.7, spawnRate: 0.5, hpDrain: 2.0, hitWindow: 60 }
+        };
+
+        // ============================================
+        // GAME STATE
+        // ============================================
+        const gameState = {
+            // Screens
+            currentScreen: 'calibration',
+
+            // Game
+            isPlaying: false,
+            isPaused: false,
+            difficulty: 'easy',
+
+            // Score
+            score: 0,
+            combo: 0,
+            maxCombo: 0,
+            hp: CONFIG.MAX_HP,
+
+            // Stats
+            perfectHits: 0,
+            goodHits: 0,
+            okHits: 0,
+            missedHits: 0,
+            totalNotes: 0,
+
+            // Timing
+            audioLatency: 0,
+            lastFrameTime: 0,
+            gameTime: 0,
+            gameStartTime: 0,
+
+            // Notes
+            notes: [],
+            nextNoteTime: 0,
+
+            // Particles
+            particles: [],
+
+            // Calibration
+            calibrationTaps: [],
+            calibrationBeats: [],
+
+            // Analytics
+            analytics: {
+                startTime: 0,
+                pauseCount: 0,
+                totalPauseTime: 0
+            }
+        };
+
+        // ============================================
+        // PARTICLE SYSTEM
+        // ============================================
+        class Particle {
+            constructor(x, y, color, vx, vy, life) {
+                this.x = x;
+                this.y = y;
+                this.color = color;
+                this.vx = vx;
+                this.vy = vy;
+                this.life = life;
+                this.maxLife = life;
+                this.radius = 5 + Math.random() * 5;
+            }
+
+            update(dt) {
+                this.x += this.vx * dt;
+                this.y += this.vy * dt;
+                this.vy += 0.1 * dt;
+                this.life -= dt;
+                this.radius *= 0.98;
+            }
+
+            isAlive() {
+                return this.life > 0;
+            }
+
+            draw(ctx) {
+                const alpha = Math.max(0, this.life / this.maxLife);
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // ============================================
+        // NOTE POOL (Performance Optimization)
+        // ============================================
+        class NotePool {
+            constructor(size = 100) {
+                this.pool = [];
+                this.active = [];
+
+                for (let i = 0; i < size; i++) {
+                    this.pool.push(this.createNote());
+                }
+            }
+
+            createNote() {
+                return {
+                    lane: 0,
+                    y: 0,
+                    time: 0,
+                    hit: false,
+                    missed: false
+                };
+            }
+
+            get(lane, y, time) {
+                let note = this.pool.pop();
+                if (!note) {
+                    note = this.createNote();
+                }
+
+                note.lane = lane;
+                note.y = y;
+                note.time = time;
+                note.hit = false;
+                note.missed = false;
+
+                this.active.push(note);
+                return note;
+            }
+
+            release(note) {
+                const index = this.active.indexOf(note);
+                if (index > -1) {
+                    this.active.splice(index, 1);
+                    this.pool.push(note);
+                }
+            }
+
+            releaseAll() {
+                this.pool.push(...this.active);
+                this.active = [];
+            }
+        }
+
+        // ============================================
+        // GAME CLASS
+        // ============================================
+        class Game {
+            constructor() {
+                this.canvas = document.getElementById('gameCanvas');
+                this.ctx = this.canvas.getContext('2d', { alpha: false });
+
+                // Note pool
+                this.notePool = new NotePool(100);
+
+                // Audio context
+                this.audioContext = null;
+                this.bgmSource = null;
+
+                // Input
+                this.touchActive = [false, false, false];
+
+                // Animation
+                this.animationId = null;
+
+                // FPS counter
+                this.fpsCounter = document.getElementById('fpsCounter');
+                this.frameCount = 0;
+                this.lastFpsUpdate = performance.now();
+                this.fps = 60;
+
+                // Mobile
+                this.pauseTime = null;
+
+                this.init();
+            }
+
+            init() {
+                this.setupCanvas();
+                this.setupEventListeners();
+                this.initAudio();
+                this.startCalibration();
+            }
+
+            setupCanvas() {
+                const dpr = window.devicePixelRatio || 1;
+                const rect = this.canvas.getBoundingClientRect();
+
+                this.canvas.width = CONFIG.CANVAS_WIDTH;
+                this.canvas.height = CONFIG.CANVAS_HEIGHT;
+
+                this.scaleX = CONFIG.CANVAS_WIDTH / rect.width;
+                this.scaleY = CONFIG.CANVAS_HEIGHT / rect.height;
+            }
+
+            setupEventListeners() {
+                // Window resize
+                window.addEventListener('resize', () => this.setupCanvas());
+
+                // Mobile: prevent zoom
+                document.addEventListener('touchmove', (e) => {
+                    if (e.touches.length > 1) e.preventDefault();
+                }, { passive: false });
+
+                // Prevent sleep during game
+                document.addEventListener('visibilitychange', () => {
+                    if (gameState.isPlaying && !gameState.isPaused) {
+                        if (document.hidden) {
+                            this.pauseTime = performance.now();
+                            this.pauseGame();
+                        }
+                    }
+                });
+
+                // Touch/Mouse events for lanes
+                this.canvas.addEventListener('touchstart', (e) => this.handleTouch(e, true));
+                this.canvas.addEventListener('touchend', (e) => this.handleTouch(e, false));
+                this.canvas.addEventListener('mousedown', (e) => this.handleMouse(e, true));
+                this.canvas.addEventListener('mouseup', (e) => this.handleMouse(e, false));
+
+                // Button events
+                document.getElementById('startButton').addEventListener('click', () => this.startGame());
+                document.getElementById('resumeButton').addEventListener('click', () => this.resumeGame());
+                document.getElementById('restartButton').addEventListener('click', () => this.restartGame());
+                document.getElementById('quitButton').addEventListener('click', () => this.quitToMenu());
+                document.getElementById('playAgainButton').addEventListener('click', () => this.startGame());
+                document.getElementById('menuButton').addEventListener('click', () => this.quitToMenu());
+                document.getElementById('recalibrateButton').addEventListener('click', () => this.startCalibration());
+                document.getElementById('skipCalibration').addEventListener('click', () => this.skipCalibration());
+                document.getElementById('tapZone').addEventListener('click', () => this.handleCalibrationTap());
+                document.getElementById('testSoundButton').addEventListener('click', () => this.testSound());
+                document.getElementById('startGameButton').addEventListener('click', () => this.startGameFromSettings());
+
+                // Calibration sliders
+                const latencySlider = document.getElementById('latencySlider');
+                const difficultyMultiplier = document.getElementById('difficultyMultiplier');
+
+                if (latencySlider) {
+                    latencySlider.addEventListener('input', (e) => {
+                        gameState.audioLatency = parseInt(e.target.value);
+                        document.getElementById('latencyValue').textContent = gameState.audioLatency + 'ms';
+                        document.getElementById('summaryLatency').textContent = gameState.audioLatency + 'ms';
+                        this.saveLoacalSettings();
+                    });
+                }
+
+                if (difficultyMultiplier) {
+                    difficultyMultiplier.addEventListener('input', (e) => {
+                        const mul = parseFloat(e.target.value);
+                        document.getElementById('difficultyValue').textContent = mul.toFixed(1) + 'x';
+
+                        let diffName = 'Easy';
+                        if (mul >= 1.4) diffName = 'Extreme';
+                        else if (mul >= 1.2) diffName = 'Hard';
+                        else if (mul >= 1.0) diffName = 'Normal';
+
+                        document.getElementById('summaryDifficulty').textContent = diffName;
+                        this.saveLoacalSettings();
+                    });
+                }
+
+                // Difficulty selector (menu)
+                document.querySelectorAll('.difficulty-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        document.querySelectorAll('.difficulty-btn').forEach(b => b.classList.remove('selected'));
+                        e.target.classList.add('selected');
+                        gameState.difficulty = e.target.dataset.difficulty;
+                    });
+                });
+
+                // Keyboard (for pause)
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && gameState.isPlaying && !gameState.isPaused) {
+                        this.pauseGame();
+                    }
+                });
+            }
+
+            saveLoacalSettings() {
+                try {
+                    localStorage.setItem('rhythmGameSettings', JSON.stringify({
+                        latency: gameState.audioLatency
+                    }));
+                } catch (e) {
+                    console.error('Failed to save settings:', e);
+                }
+            }
+
+            loadLocalSettings() {
+                try {
+                    const saved = localStorage.getItem('rhythmGameSettings');
+                    if (saved) {
+                        const settings = JSON.parse(saved);
+                        gameState.audioLatency = settings.latency || 0;
+                        const latencySlider = document.getElementById('latencySlider');
+                        if (latencySlider) {
+                            latencySlider.value = gameState.audioLatency;
+                            document.getElementById('latencyValue').textContent = gameState.audioLatency + 'ms';
+                            document.getElementById('summaryLatency').textContent = gameState.audioLatency + 'ms';
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to load settings:', e);
+                }
+            }
+
+            initAudio() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.error('Web Audio API not supported:', e);
+                }
+            }
+
+            // ============================================
+            // CALIBRATION
+            // ============================================
+            startCalibration() {
+                this.showScreen('calibration');
+                gameState.calibrationTaps = [];
+                gameState.calibrationBeats = [];
+
+                // Generate calibration beats (simple 1 second intervals)
+                for (let i = 1; i <= 10; i++) {
+                    gameState.calibrationBeats.push(i * 1000);
+                }
+
+                this.startCalibrationBeats();
+            }
+
+            startCalibrationBeats() {
+                let beatIndex = 0;
+                const beatInterval = setInterval(() => {
+                    if (beatIndex >= gameState.calibrationBeats.length) {
+                        clearInterval(beatInterval);
+                        return;
+                    }
+
+                    // Visual feedback
+                    const tapZone = document.getElementById('tapZone');
+                    tapZone.style.background = 'linear-gradient(135deg, rgba(255, 0, 110, 0.8) 0%, rgba(131, 56, 236, 0.8) 100%)';
+                    setTimeout(() => {
+                        tapZone.style.background = 'linear-gradient(135deg, rgba(255, 0, 110, 0.3) 0%, rgba(131, 56, 236, 0.3) 100%)';
+                    }, 100);
+
+                    // Play beep
+                    this.playBeep(800, 0.1);
+
+                    beatIndex++;
+                }, 1000);
+            }
+
+            handleCalibrationTap() {
+                const tapTime = performance.now();
+                gameState.calibrationTaps.push(tapTime);
+
+                const tapCount = gameState.calibrationTaps.length;
+                document.getElementById('calibrationDisplay').textContent = `Taps: ${tapCount}/10`;
+
+                // Vibrate
+                if (navigator.vibrate) {
+                    navigator.vibrate(20);
+                }
+
+                if (tapCount >= 10) {
+                    this.finishCalibration();
+                }
+            }
+
+            finishCalibration() {
+                // Calculate average latency
+                const taps = gameState.calibrationTaps;
+                const beats = gameState.calibrationBeats;
+
+                let totalOffset = 0;
+                const startTime = taps[0];
+
+                for (let i = 0; i < Math.min(taps.length, beats.length); i++) {
+                    const expectedTime = startTime + beats[i];
+                    const actualTime = taps[i];
+                    totalOffset += actualTime - expectedTime;
+                }
+
+                gameState.audioLatency = Math.round(totalOffset / Math.min(taps.length, beats.length));
+                gameState.audioLatency = Math.max(-200, Math.min(200, gameState.audioLatency));
+
+                console.log('Calibration complete. Audio latency:', gameState.audioLatency.toFixed(2), 'ms');
+
+                this.showSettingsPhase();
+            }
+
+            skipCalibration() {
+                gameState.audioLatency = 0;
+                this.showSettingsPhase();
+            }
+
+            showSettingsPhase() {
+                document.getElementById('calibrationPhase').style.display = 'none';
+                document.getElementById('settingsPhase').style.display = 'flex';
+                this.loadLocalSettings();
+            }
+
+            startGameFromSettings() {
+                document.getElementById('calibrationScreen').classList.remove('active');
+                this.startGame();
+            }
+
+            testSound() {
+                this.playBeep(800, 0.3);
+                this.playBeep(600, 0.2);
+
+                if (navigator.vibrate) {
+                    navigator.vibrate([100, 50, 100]);
+                }
+            }
+
+            // ============================================
+            // AUDIO
+            // ============================================
+            playBeep(frequency, duration) {
+                if (!this.audioContext) return;
+
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+
+                oscillator.frequency.value = frequency;
+                oscillator.type = 'sine';
+
+                gainNode.gain.setValueAtTime(0.3, this.audioContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + duration);
+
+                oscillator.start(this.audioContext.currentTime);
+                oscillator.stop(this.audioContext.currentTime + duration);
+            }
+
+            // ============================================
+            // SCREEN MANAGEMENT
+            // ============================================
+            showScreen(screenName) {
+                document.querySelectorAll('.screen').forEach(screen => {
+                    screen.classList.remove('active');
+                });
+
+                const screens = {
+                    'calibration': 'calibrationScreen',
+                    'menu': 'menuScreen',
+                    'pause': 'pauseScreen',
+                    'gameOver': 'gameOverScreen'
+                };
+
+                if (screens[screenName]) {
+                    document.getElementById(screens[screenName]).classList.add('active');
+                }
+
+                gameState.currentScreen = screenName;
+            }
+
+            showMenu() {
+                this.showScreen('menu');
+            }
+
+            // ============================================
+            // GAME CONTROL
+            // ============================================
+            startGame() {
+                // Reset state
+                gameState.isPlaying = true;
+                gameState.isPaused = false;
+                gameState.score = 0;
+                gameState.combo = 0;
+                gameState.maxCombo = 0;
+                gameState.hp = CONFIG.MAX_HP;
+                gameState.perfectHits = 0;
+                gameState.goodHits = 0;
+                gameState.okHits = 0;
+                gameState.missedHits = 0;
+                gameState.totalNotes = 0;
+                gameState.gameTime = 0;
+                gameState.gameStartTime = performance.now();
+                gameState.nextNoteTime = 1000;
+                gameState.particles = [];
+
+                // Clear notes
+                this.notePool.releaseAll();
+                gameState.notes = [];
+
+                // Hide menu
+                this.showScreen(null);
+
+                // Resume audio context
+                if (this.audioContext && this.audioContext.state === 'suspended') {
+                    this.audioContext.resume();
+                }
+
+                // Track game start
+                this.trackGameStart();
+
+                // Start game loop
+                gameState.lastFrameTime = performance.now();
+                this.gameLoop();
+            }
+
+            pauseGame() {
+                if (!gameState.isPlaying || gameState.isPaused) return;
+
+                gameState.isPaused = true;
+                this.showScreen('pause');
+
+                this.trackPause();
+
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+            }
+
+            resumeGame() {
+                if (!gameState.isPlaying || !gameState.isPaused) return;
+
+                gameState.isPaused = false;
+                this.showScreen(null);
+
+                gameState.lastFrameTime = performance.now();
+                this.gameLoop();
+            }
+
+            restartGame() {
+                this.startGame();
+            }
+
+            quitToMenu() {
+                gameState.isPlaying = false;
+                gameState.isPaused = false;
+
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+
+                this.notePool.releaseAll();
+                gameState.notes = [];
+
+                this.showMenu();
+            }
+
+            gameOver() {
+                gameState.isPlaying = false;
+
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+
+                // Update stats
+                const accuracy = gameState.totalNotes > 0
+                    ? ((gameState.perfectHits + gameState.goodHits) / gameState.totalNotes * 100).toFixed(1)
+                    : 0;
+
+                document.getElementById('finalScore').textContent = gameState.score;
+                document.getElementById('finalCombo').textContent = gameState.maxCombo;
+                document.getElementById('finalAccuracy').textContent = accuracy + '%';
+                document.getElementById('finalPerfect').textContent = gameState.perfectHits;
+                document.getElementById('finalGood').textContent = gameState.goodHits;
+                document.getElementById('finalMiss').textContent = gameState.missedHits;
+
+                this.showScreen('gameOver');
+
+                // Send score to Telegram bot (if available)
+                this.sendScoreToBot();
+            }
+
+            sendScoreToBot() {
+                if (!window.Telegram?.WebApp) return;
+
+                try {
+                    const accuracy = gameState.totalNotes > 0
+                        ? ((gameState.perfectHits + gameState.goodHits) / gameState.totalNotes * 100).toFixed(1)
+                        : 0;
+
+                    const analyticsData = {
+                        event: 'game_over',
+                        score: Math.floor(gameState.score),
+                        maxCombo: gameState.maxCombo,
+                        accuracy: accuracy,
+                        perfect: gameState.perfectHits,
+                        good: gameState.goodHits,
+                        miss: gameState.missedHits,
+                        difficulty: gameState.difficulty,
+                        latency: gameState.audioLatency,
+                        duration: gameState.gameTime,
+                        timestamp: new Date().toISOString()
+                    };
+
+                    this.sendAnalytics(analyticsData);
+                } catch (e) {
+                    console.error('Error preparing score data:', e);
+                }
+            }
+
+            sendAnalytics(data) {
+                try {
+                    const token = new URLSearchParams(window.location.search).get('token');
+                    if (token && navigator.sendBeacon) {
+                        navigator.sendBeacon('/api/analytics', JSON.stringify(data));
+                    } else {
+                        console.log('Analytics (would send to bot):', data);
+                    }
+                } catch (e) {
+                    console.error('Error sending analytics:', e);
+                }
+            }
+
+            trackGameStart() {
+                gameState.analytics.startTime = performance.now();
+
+                const startData = {
+                    event: 'game_start',
+                    difficulty: gameState.difficulty,
+                    latency: gameState.audioLatency,
+                    timestamp: new Date().toISOString()
+                };
+
+                this.logAnalytics(startData);
+            }
+
+            trackPause() {
+                gameState.analytics.pauseCount++;
+
+                const pauseData = {
+                    event: 'game_pause',
+                    pauseCount: gameState.analytics.pauseCount,
+                    gameTime: gameState.gameTime,
+                    timestamp: new Date().toISOString()
+                };
+
+                this.logAnalytics(pauseData);
+            }
+
+            logAnalytics(data) {
+                console.log('Analytics event:', data);
+            }
+
+            // ============================================
+            // INPUT HANDLING
+            // ============================================
+            handleTouch(e, isDown) {
+                e.preventDefault();
+
+                if (!gameState.isPlaying || gameState.isPaused) return;
+
+                const rect = this.canvas.getBoundingClientRect();
+
+                for (let i = 0; i < e.changedTouches.length; i++) {
+                    const touch = e.changedTouches[i];
+                    const x = (touch.clientX - rect.left) * this.scaleX;
+                    const lane = this.getLaneFromX(x);
+
+                    if (lane !== -1) {
+                        if (isDown) {
+                            this.handleLaneInput(lane);
+                        }
+                        this.touchActive[lane] = isDown;
+                    }
+                }
+            }
+
+            handleMouse(e, isDown) {
+                e.preventDefault();
+
+                if (!gameState.isPlaying || gameState.isPaused) return;
+
+                const rect = this.canvas.getBoundingClientRect();
+                const x = (e.clientX - rect.left) * this.scaleX;
+                const lane = this.getLaneFromX(x);
+
+                if (lane !== -1) {
+                    if (isDown) {
+                        this.handleLaneInput(lane);
+                    }
+                    this.touchActive[lane] = isDown;
+                }
+            }
+
+            getLaneFromX(x) {
+                const centerX = CONFIG.CANVAS_WIDTH / 2;
+                const totalWidth = CONFIG.LANES * CONFIG.LANE_WIDTH;
+                const startX = centerX - totalWidth / 2;
+
+                for (let i = 0; i < CONFIG.LANES; i++) {
+                    const laneX = startX + i * CONFIG.LANE_WIDTH;
+                    if (x >= laneX && x < laneX + CONFIG.LANE_WIDTH) {
+                        return i;
+                    }
+                }
+
+                return -1;
+            }
+
+            handleLaneInput(lane) {
+                // Find closest note in this lane within hit window
+                const diff = DIFFICULTY[gameState.difficulty];
+                const hitWindow = diff.hitWindow || 100;
+
+                let closestNote = null;
+                let closestDist = Infinity;
+
+                for (const note of gameState.notes) {
+                    if (note.lane === lane && !note.hit && !note.missed) {
+                        const dist = Math.abs(note.y - CONFIG.HIT_ZONE_Y);
+                        if (dist < hitWindow && dist < closestDist) {
+                            closestNote = note;
+                            closestDist = dist;
+                        }
+                    }
+                }
+
+                if (closestNote) {
+                    this.hitNote(closestNote, closestDist);
+                }
+            }
+
+            hitNote(note, distance) {
+                note.hit = true;
+
+                // Determine hit quality
+                let quality = 'OK';
+                let score = CONFIG.SCORE.OK;
+                let hpGain = CONFIG.HP_GAIN.OK;
+                let color = CONFIG.COLORS.OK;
+                let frequency = 500;
+                let vibrationPattern = [20];
+
+                if (distance <= CONFIG.TIMING.PERFECT) {
+                    quality = 'PERFECT';
+                    score = CONFIG.SCORE.PERFECT;
+                    hpGain = CONFIG.HP_GAIN.PERFECT;
+                    gameState.perfectHits++;
+                    color = CONFIG.COLORS.PERFECT;
+                    frequency = 800;
+                    vibrationPattern = [80];
+                } else if (distance <= CONFIG.TIMING.GOOD) {
+                    quality = 'GOOD';
+                    score = CONFIG.SCORE.GOOD;
+                    hpGain = CONFIG.HP_GAIN.GOOD;
+                    gameState.goodHits++;
+                    color = CONFIG.COLORS.GOOD;
+                    frequency = 700;
+                    vibrationPattern = [50];
+                } else {
+                    gameState.okHits++;
+                    color = CONFIG.COLORS.OK;
+                    frequency = 600;
+                    vibrationPattern = [20];
+                }
+
+                // Update game state
+                gameState.combo++;
+                gameState.maxCombo = Math.max(gameState.maxCombo, gameState.combo);
+                gameState.score += score * (1 + gameState.combo * 0.1);
+                gameState.hp = Math.min(CONFIG.MAX_HP, gameState.hp + hpGain);
+
+                // Create particles
+                const centerX = CONFIG.CANVAS_WIDTH / 2;
+                const totalWidth = CONFIG.LANES * CONFIG.LANE_WIDTH;
+                const startX = centerX - totalWidth / 2;
+                const noteX = startX + note.lane * CONFIG.LANE_WIDTH + CONFIG.LANE_WIDTH / 2;
+
+                for (let i = 0; i < 8; i++) {
+                    const angle = (Math.PI * 2 * i) / 8;
+                    const speed = 3 + Math.random() * 3;
+                    const vx = Math.cos(angle) * speed;
+                    const vy = Math.sin(angle) * speed;
+                    const particle = new Particle(noteX, CONFIG.HIT_ZONE_Y, color, vx, vy, 400);
+                    gameState.particles.push(particle);
+                }
+
+                // Audio feedback
+                this.playBeep(frequency, 0.05);
+
+                // Vibration feedback
+                if (navigator.vibrate) {
+                    navigator.vibrate(vibrationPattern);
+                }
+
+                // Analytics
+                this.logAnalytics({
+                    event: 'hit_note',
+                    quality: quality,
+                    combo: gameState.combo,
+                    distance: distance.toFixed(2)
+                });
+            }
+
+            // ============================================
+            // GAME LOOP
+            // ============================================
+            gameLoop() {
+                if (!gameState.isPlaying || gameState.isPaused) return;
+
+                const currentTime = performance.now();
+                const deltaTime = currentTime - gameState.lastFrameTime;
+
+                // Fixed time step
+                if (deltaTime >= CONFIG.FRAME_TIME) {
+                    this.update(deltaTime);
+                    this.render();
+
+                    gameState.lastFrameTime = currentTime - (deltaTime % CONFIG.FRAME_TIME);
+                }
+
+                this.animationId = requestAnimationFrame(() => this.gameLoop());
+            }
+
+            update(deltaTime) {
+                gameState.gameTime += deltaTime;
+
+                // Get difficulty settings
+                const diff = DIFFICULTY[gameState.difficulty];
+
+                // Update particles
+                for (let i = gameState.particles.length - 1; i >= 0; i--) {
+                    const particle = gameState.particles[i];
+                    particle.update(deltaTime);
+
+                    if (!particle.isAlive()) {
+                        gameState.particles.splice(i, 1);
+                    }
+                }
+
+                // Spawn notes
+                if (gameState.gameTime >= gameState.nextNoteTime) {
+                    this.spawnNote();
+                    gameState.nextNoteTime = gameState.gameTime + (1000 + Math.random() * 500) * diff.spawnRate;
+                }
+
+                // Update notes
+                const speed = CONFIG.NOTE_SPEED * diff.speed;
+                for (let i = gameState.notes.length - 1; i >= 0; i--) {
+                    const note = gameState.notes[i];
+
+                    if (note.hit) {
+                        gameState.notes.splice(i, 1);
+                        this.notePool.release(note);
+                        continue;
+                    }
+
+                    note.y += speed;
+
+                    // Check if missed
+                    if (note.y > CONFIG.HIT_ZONE_Y + CONFIG.HIT_ZONE_HEIGHT && !note.missed) {
+                        note.missed = true;
+                        gameState.combo = 0;
+                        gameState.missedHits++;
+                        gameState.hp = Math.max(0, gameState.hp + CONFIG.HP_GAIN.MISS * diff.hpDrain);
+                    }
+
+                    // Remove off-screen notes
+                    if (note.y > CONFIG.CANVAS_HEIGHT + 100) {
+                        gameState.notes.splice(i, 1);
+                        this.notePool.release(note);
+                    }
+                }
+
+                // HP drain
+                gameState.hp = Math.max(0, gameState.hp - CONFIG.HP_DRAIN_RATE * diff.hpDrain);
+
+                // Check game over
+                if (gameState.hp <= 0) {
+                    this.gameOver();
+                }
+
+                // Update FPS counter
+                this.frameCount++;
+                const now = performance.now();
+                if (now - this.lastFpsUpdate >= 1000) {
+                    this.fps = this.frameCount;
+                    this.frameCount = 0;
+                    this.lastFpsUpdate = now;
+
+                    this.fpsCounter.textContent = `FPS: ${this.fps}`;
+                }
+            }
+
+            spawnNote() {
+                const lane = Math.floor(Math.random() * CONFIG.LANES);
+                const note = this.notePool.get(lane, -CONFIG.NOTE_RADIUS * 2, gameState.gameTime);
+                gameState.notes.push(note);
+                gameState.totalNotes++;
+            }
+
+            // ============================================
+            // RENDERING
+            // ============================================
+            render() {
+                const ctx = this.ctx;
+
+                // Background
+                const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.CANVAS_HEIGHT);
+                gradient.addColorStop(0, CONFIG.COLORS.BG);
+                gradient.addColorStop(1, CONFIG.COLORS.BG_GRADIENT);
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT);
+
+                // Lanes
+                this.renderLanes();
+
+                // Hit zone
+                this.renderHitZone();
+
+                // Notes
+                this.renderNotes();
+
+                // Particles
+                this.renderParticles();
+
+                // UI
+                this.renderUI();
+            }
+
+            renderParticles() {
+                const ctx = this.ctx;
+
+                for (const particle of gameState.particles) {
+                    particle.draw(ctx);
+                }
+            }
+
+            renderLanes() {
+                const ctx = this.ctx;
+                const centerX = CONFIG.CANVAS_WIDTH / 2;
+                const totalWidth = CONFIG.LANES * CONFIG.LANE_WIDTH;
+                const startX = centerX - totalWidth / 2;
+
+                for (let i = 0; i < CONFIG.LANES; i++) {
+                    const x = startX + i * CONFIG.LANE_WIDTH;
+
+                    // Lane background (highlight if touched)
+                    if (this.touchActive[i]) {
+                        ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
+                        ctx.fillRect(x, 0, CONFIG.LANE_WIDTH, CONFIG.CANVAS_HEIGHT);
+                    }
+
+                    // Lane borders
+                    ctx.strokeStyle = CONFIG.COLORS.LANE_BORDER;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(x, 0);
+                    ctx.lineTo(x, CONFIG.CANVAS_HEIGHT);
+                    ctx.stroke();
+                }
+            }
+
+            renderHitZone() {
+                const ctx = this.ctx;
+                const centerX = CONFIG.CANVAS_WIDTH / 2;
+                const totalWidth = CONFIG.LANES * CONFIG.LANE_WIDTH;
+                const startX = centerX - totalWidth / 2;
+
+                ctx.fillStyle = CONFIG.COLORS.HIT_ZONE;
+                ctx.fillRect(startX, CONFIG.HIT_ZONE_Y - CONFIG.HIT_ZONE_HEIGHT / 2, totalWidth, CONFIG.HIT_ZONE_HEIGHT);
+
+                ctx.strokeStyle = '#ff006e';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(startX, CONFIG.HIT_ZONE_Y - CONFIG.HIT_ZONE_HEIGHT / 2, totalWidth, CONFIG.HIT_ZONE_HEIGHT);
+            }
+
+            renderNotes() {
+                const ctx = this.ctx;
+                const centerX = CONFIG.CANVAS_WIDTH / 2;
+                const totalWidth = CONFIG.LANES * CONFIG.LANE_WIDTH;
+                const startX = centerX - totalWidth / 2;
+
+                for (const note of gameState.notes) {
+                    if (note.hit || note.missed) continue;
+
+                    const noteX = startX + note.lane * CONFIG.LANE_WIDTH + CONFIG.LANE_WIDTH / 2;
+
+                    // Glow
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = CONFIG.COLORS.NOTE_GLOW;
+
+                    // Note
+                    ctx.fillStyle = CONFIG.COLORS.NOTE;
+                    ctx.beginPath();
+                    ctx.arc(noteX, note.y, CONFIG.NOTE_RADIUS, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.shadowBlur = 0;
+                }
+            }
+
+            renderUI() {
+                const ctx = this.ctx;
+
+                // Score
+                ctx.font = 'bold 40px Arial';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'left';
+                ctx.fillText(`Score: ${Math.floor(gameState.score)}`, 20, 50);
+
+                // Combo
+                if (gameState.combo > 0) {
+                    ctx.font = 'bold 50px Arial';
+                    ctx.fillStyle = '#ffff00';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`${gameState.combo}x COMBO`, CONFIG.CANVAS_WIDTH / 2, 150);
+                }
+
+                // HP Bar
+                const hpBarWidth = 300;
+                const hpBarHeight = 30;
+                const hpBarX = CONFIG.CANVAS_WIDTH - hpBarWidth - 20;
+                const hpBarY = 20;
+
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+                const hpWidth = (gameState.hp / CONFIG.MAX_HP) * hpBarWidth;
+                const hpColor = gameState.hp > 50 ? '#00ff00' : gameState.hp > 25 ? '#ffff00' : '#ff0000';
+                ctx.fillStyle = hpColor;
+                ctx.fillRect(hpBarX, hpBarY, hpWidth, hpBarHeight);
+
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+                ctx.font = 'bold 16px Arial';
+                ctx.fillStyle = '#ffffff';
+                ctx.textAlign = 'center';
+                ctx.fillText('HP', hpBarX + hpBarWidth / 2, hpBarY + hpBarHeight / 2 + 6);
+            }
+        }
+
+        // ============================================
+        // TELEGRAM WEBAPP INTEGRATION
+        // ============================================
+        function initTelegramWebApp() {
+            if (window.Telegram?.WebApp) {
+                const tg = window.Telegram.WebApp;
+
+                // Tell Telegram the app is ready
+                tg.ready();
+
+                // Expand to full height
+                tg.expand();
+
+                // Apply color scheme
+                if (tg.colorScheme === 'dark') {
+                    document.body.style.background = 'linear-gradient(135deg, #0a0a0f 0%, #1a0a2e 100%)';
+                } else {
+                    document.body.style.background = 'linear-gradient(135deg, #1a1a2e 0%, #2a1a3e 100%)';
+                }
+
+                console.log('Telegram WebApp initialized');
+                console.log('User ID:', tg.initDataUnsafe?.user?.id);
+                console.log('Color scheme:', tg.colorScheme);
+            }
+        }
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+        let game;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize Telegram WebApp
+            initTelegramWebApp();
+
+            // Request fullscreen & wake lock (mobile optimizations)
+            if (document.documentElement.requestFullscreen && window.matchMedia('(display-mode: fullscreen)').matches === false) {
+                // Only request for mobile
+                if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+                    // Soft request, don't force
+                }
+            }
+
+            // Request wake lock to prevent screen sleep
+            if (navigator.wakeLock) {
+                navigator.wakeLock.request('screen').catch(err => {
+                    console.log('Wake Lock request failed:', err);
+                });
+            }
+
+            // Start game
+            game = new Game();
+        });
+    </script>
+</body>
+</html>
