@@ -3,6 +3,7 @@ import sqlite3
 import jwt
 import logging
 import json
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
 
@@ -31,20 +32,8 @@ FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:8000')
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN не установлен в переменных окружения")
 
-app = FastAPI(title="Rhythm Game Bot")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Serve static frontend for the rhythm game
-# /game -> serves game/index.html
-# /game/* -> serves other files from game/ directory
-app.mount("/game", StaticFiles(directory="game", html=True), name="game")
+# Global Application instance - will be initialized in lifespan
+application: Optional[Application] = None
 
 class GameResult(BaseModel):
     token: str
@@ -313,15 +302,81 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     
     await update.message.reply_text(message_text)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager для управления жизненным циклом Application.
+    Инициализирует и запускает Application при старте FastAPI,
+    корректно останавливает при завершении.
+    """
+    global application
+    
+    # Initialize Application
+    logger.info("Инициализация Telegram Bot Application...")
+    application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    
+    # Add command handlers
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("leaderboard", leaderboard_command))
+    application.add_handler(CommandHandler("help", help_command))
+    
+    # Initialize and start Application
+    await application.initialize()
+    await application.start()
+    logger.info("Telegram Bot Application запущен и готов к работе")
+    
+    yield
+    
+    # Cleanup: stop and shutdown Application
+    logger.info("Остановка Telegram Bot Application...")
+    await application.stop()
+    await application.shutdown()
+    logger.info("Telegram Bot Application остановлен")
+
+# Create FastAPI app with lifespan
+app = FastAPI(title="Rhythm Game Bot", lifespan=lifespan)
+
+# Add middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Serve static frontend for the rhythm game
+# /game -> serves game/index.html
+# /game/* -> serves other files from game/ directory
+app.mount("/game", StaticFiles(directory="game", html=True), name="game")
+
 @app.post("/webhook")
 async def webhook(request: Request) -> JSONResponse:
+    """
+    Webhook endpoint для получения обновлений от Telegram.
+    Application должен быть инициализирован через lifespan context manager.
+    """
+    global application
+    
+    if application is None:
+        logger.error("Application не инициализирован!")
+        return JSONResponse(
+            content={"status": "error", "message": "Application not initialized"},
+            status_code=503
+        )
+    
     try:
-        update = Update.de_json(await request.json(), application.bot)
+        data = await request.json()
+        update = Update.de_json(data, application.bot)
         await application.process_update(update)
         return JSONResponse(content={"status": "ok"})
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        return JSONResponse(content={"status": "error", "message": str(e)}, status_code=500)
+        logger.error(f"Webhook error: {e}", exc_info=True)
+        return JSONResponse(
+            content={"status": "error", "message": str(e)},
+            status_code=500
+        )
 
 @app.post("/game-result")
 @app.post("/api/game-result")
@@ -418,13 +473,6 @@ async def root() -> JSONResponse:
             "game": "/game.html"
         }
     })
-
-application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
-application.add_handler(CommandHandler("start", start_command))
-application.add_handler(CommandHandler("stats", stats_command))
-application.add_handler(CommandHandler("leaderboard", leaderboard_command))
-application.add_handler(CommandHandler("help", help_command))
 
 if __name__ == "__main__":
     import uvicorn
