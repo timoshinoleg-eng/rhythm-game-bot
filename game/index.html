@@ -2,10 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#0a0a0f">
     <title>Rhythm Rush</title>
     <style>
+        html, body {
+            height: 100vh;
+            height: 100dvh; /* Mobile browsers with dynamic viewport */
+            position: fixed;
+            overflow: hidden;
+            width: 100%;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -752,8 +760,8 @@
             CANVAS_HEIGHT: window.innerHeight || 1200,
 
             // Lanes
-            LANES: 3,
-            LANE_WIDTH: 150,
+            LANES: 4,        // Changed from 3 for better UI (like DDR/Taiko)
+            LANE_WIDTH: 120,  // Adjusted for 4 lanes
 
             // Notes
             NOTE_RADIUS: 40,
@@ -778,32 +786,36 @@
                 30: 2.5    // 30+ combo
             },
 
-            // Timing windows (ms)
+            // Timing windows (ms) - ЭТАП 1: 5 уровней точности
             TIMING: {
                 PERFECT: 50,   // ±50ms
-                GOOD: 100,     // ±100ms
-                BAD: 150       // ±150ms
+                GREAT: 100,    // ±100ms
+                GOOD: 150,     // ±150ms
+                OKAY: 200,     // ±200ms
+                MISS: Infinity // Все остальное
             },
 
-            // Scoring
+            // Scoring - ЭТАП 1: Обновлено для 5 уровней
             SCORE: {
                 PERFECT: 100,
+                GREAT: 75,
                 GOOD: 50,
-                BAD: 25,
+                OKAY: 25,
                 MISS: 0
             },
 
-            // HP
+            // HP - ЭТАП 1: Обновлено для 5 уровней
             MAX_HP: 100,
             HP_DRAIN_RATE: 0.05,
             HP_GAIN: {
-                PERFECT: 2,
-                GOOD: 1,
-                BAD: 0.5,
-                MISS: -10
+                PERFECT: 2,    // +2 HP
+                GREAT: 1,      // +1 HP
+                GOOD: 0,       // Neutral
+                OKAY: -2,      // -2 HP
+                MISS: -8       // -8% HP
             },
 
-            // Colors
+            // Colors - ЭТАП 1: Обновлено для 5 уровней
             COLORS: {
                 BG: '#0a0a0f',
                 BG_GRADIENT: '#1a0a2e',
@@ -812,10 +824,11 @@
                 HIT_ZONE: 'rgba(255, 0, 110, 0.3)',
                 NOTE: '#00ffff',
                 NOTE_GLOW: 'rgba(0, 255, 255, 0.5)',
-                PERFECT: '#00ff00',
-                GOOD: '#ffff00',
-                BAD: '#ff9900',
-                MISS: '#ff0000'
+                PERFECT: '#FFD700',  // Gold
+                GREAT: '#00FF00',    // Green
+                GOOD: '#0099FF',     // Blue
+                OKAY: '#FF9900',     // Orange
+                MISS: '#FF0000'      // Red
             },
 
             // Music settings
@@ -839,6 +852,62 @@
         // ============================================
         const urlParams = new URLSearchParams(window.location.search);
         const GAME_TOKEN = urlParams.get('token') || null;
+
+        // ============================================
+        // ЭТАП 1: TIMING SYSTEM
+        // ============================================
+        const TIMING_WINDOWS = {
+            PERFECT: { ms: 50, points: 100, color: '#FFD700', text: '🌟 PERFECT!' },
+            GREAT: { ms: 100, points: 75, color: '#00FF00', text: '✨ GREAT!' },
+            GOOD: { ms: 150, points: 50, color: '#0099FF', text: 'GOOD' },
+            OKAY: { ms: 200, points: 25, color: '#FF9900', text: 'OK' },
+            MISS: { ms: Infinity, points: 0, color: '#FF0000', text: '✗ MISS' }
+        };
+
+        // Функция расчета качества попадания
+        function calculateHitQuality(hitTime, noteTime) {
+            const timingError = Math.abs(hitTime - noteTime);
+            const isEarly = hitTime < noteTime;
+            
+            let quality = 'MISS';
+            for (const [level, window] of Object.entries(TIMING_WINDOWS)) {
+                if (timingError <= window.ms) {
+                    quality = level;
+                    break;
+                }
+            }
+            
+            return {
+                quality,
+                points: TIMING_WINDOWS[quality].points,
+                timingError: Math.round(timingError),
+                direction: isEarly ? 'EARLY' : 'LATE',
+                color: TIMING_WINDOWS[quality].color,
+                text: TIMING_WINDOWS[quality].text
+            };
+        }
+
+        // Класс калибровки задержки
+        class LatencyCalibration {
+            constructor() {
+                this.offset = parseFloat(localStorage.getItem('audio_offset') || '0');
+            }
+            
+            async runCalibration() {
+                // Использовать существующую калибровку из index.html
+                // Сохранить результат в localStorage
+                localStorage.setItem('audio_offset', this.offset.toString());
+            }
+            
+            getCompensatedTime(rawTime) {
+                return rawTime + this.offset;
+            }
+            
+            setOffset(offsetMs) {
+                this.offset = offsetMs;
+                localStorage.setItem('audio_offset', this.offset.toString());
+            }
+        }
 
         // ============================================
         // TASK 2: Store last game result for retry
@@ -1026,9 +1095,11 @@
             hp: CONFIG.MAX_HP,
 
             // Stats
+            // ЭТАП 1: Обновлено для 5 уровней точности
             perfectHits: 0,
+            greatHits: 0,
             goodHits: 0,
-            badHits: 0,
+            okayHits: 0,
             missedHits: 0,
             totalNotes: 0,
 
@@ -1047,7 +1118,7 @@
             currentBeatIndex: 0,      // Индекс текущего бита для спавна
 
             // UI feedback для попаданий
-            lastHitResult: null,      // 'PERFECT', 'GOOD', 'BAD', 'MISS'
+            lastHitResult: null,      // 'PERFECT', 'GREAT', 'GOOD', 'OKAY', 'MISS'
             lastHitTime: 0,           // Когда было последнее попадание
 
             // Для отладки
@@ -1196,12 +1267,13 @@
                 osc.connect(gain);
                 gain.connect(ctx.destination);
                 
-                // Разные звуки для разных результатов
+                // ЭТАП 1: Разные звуки для 5 уровней
                 const tones = {
                     perfect: { freq: 880, dur: 0.2 },  // высокий бип
-                    good: { freq: 660, dur: 0.15 },    // средний бип
-                    bad: { freq: 440, dur: 0.1 },      // низкий бип
-                    miss: { freq: 220, dur: 0.05 }     // очень низкий
+                    great: { freq: 700, dur: 0.15 },     // средний-высокий
+                    good: { freq: 600, dur: 0.15 },      // средний бип
+                    okay: { freq: 400, dur: 0.1 },       // низкий бип
+                    miss: { freq: 220, dur: 0.05 }        // очень низкий
                 };
                 
                 const tone = tones[type] || tones.good;
@@ -1212,6 +1284,703 @@
                 
                 osc.start(now);
                 osc.stop(now + tone.dur);
+            }
+        }
+
+        // ============================================
+        // ЭТАП 2: PARTICLE HIT EFFECT
+        // ============================================
+        class ParticleHitEffect {
+            constructor(canvasCtx) {
+                this.ctx = canvasCtx;
+                this.particles = [];
+            }
+            
+            createHitParticles(x, y, quality) {
+                const configs = {
+                    PERFECT: {
+                        count: 12,
+                        color: '#FFD700',
+                        velocity: { min: 200, max: 400 },
+                        lifetime: 600,
+                        size: 6
+                    },
+                    GREAT: {
+                        count: 8,
+                        color: '#00FF00',
+                        velocity: { min: 150, max: 300 },
+                        lifetime: 500,
+                        size: 5
+                    },
+                    GOOD: {
+                        count: 4,
+                        color: '#0099FF',
+                        velocity: { min: 100, max: 200 },
+                        lifetime: 400,
+                        size: 4
+                    },
+                    OKAY: {
+                        count: 3,
+                        color: '#FF9900',
+                        velocity: { min: 80, max: 150 },
+                        lifetime: 300,
+                        size: 3
+                    },
+                    MISS: {
+                        count: 6,
+                        color: '#FF0000',
+                        velocity: { min: 100, max: 250 },
+                        lifetime: 700,
+                        size: 5
+                    }
+                };
+                
+                const config = configs[quality] || configs.GOOD;
+                for (let i = 0; i < config.count; i++) {
+                    const angle = (Math.PI * 2 * i) / config.count;
+                    const velocity = Math.random() * (config.velocity.max - config.velocity.min) + config.velocity.min;
+                    
+                    this.particles.push({
+                        x, y,
+                        vx: Math.cos(angle) * velocity,
+                        vy: Math.sin(angle) * velocity,
+                        color: config.color,
+                        size: config.size,
+                        lifetime: config.lifetime,
+                        age: 0,
+                        opacity: 1.0
+                    });
+                }
+            }
+            
+            update(deltaTime) {
+                this.particles = this.particles.filter(p => {
+                    p.age += deltaTime;
+                    p.x += p.vx * (deltaTime / 1000);
+                    p.y += p.vy * (deltaTime / 1000);
+                    p.vy += 200 * (deltaTime / 1000); // gravity
+                    p.opacity = 1.0 - (p.age / p.lifetime);
+                    return p.age < p.lifetime;
+                });
+            }
+            
+            draw() {
+                this.particles.forEach(p => {
+                    this.ctx.save();
+                    this.ctx.globalAlpha = p.opacity;
+                    this.ctx.fillStyle = p.color;
+                    this.ctx.beginPath();
+                    this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    this.ctx.restore();
+                });
+            }
+        }
+
+        // Вспомогательная функция для создания цвета с opacity
+        if (!CanvasRenderingContext2D.prototype.createColor) {
+            CanvasRenderingContext2D.prototype.createColor = function(hexColor, opacity) {
+                const r = parseInt(hexColor.slice(1, 3), 16);
+                const g = parseInt(hexColor.slice(3, 5), 16);
+                const b = parseInt(hexColor.slice(5, 7), 16);
+                return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+            };
+        }
+
+        // ============================================
+        // ЭТАП 2: SCREEN SHAKE EFFECT
+        // ============================================
+        class ScreenShakeEffect {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.shakeAmount = 0;
+                this.shakeDuration = 0;
+                this.maxDuration = 150;
+            }
+            
+            triggerShake(quality, comboCount = 0) {
+                const intensities = {
+                    PERFECT: 3 + Math.min(comboCount / 50, 2),  // До 5px
+                    GREAT: 2 + Math.min(comboCount / 100, 1),   // До 3px
+                    GOOD: 1 + Math.min(comboCount / 100, 0.5),  // До 1.5px
+                    OKAY: 0.5,
+                    MISS: 4                                      // Сильный shake
+                };
+                
+                this.shakeAmount = intensities[quality] || 0.5;
+                this.shakeDuration = this.maxDuration;
+            }
+            
+            update(deltaTime) {
+                if (this.shakeDuration > 0) {
+                    this.shakeDuration -= deltaTime;
+                } else {
+                    this.shakeAmount = 0;
+                }
+            }
+            
+            getOffset() {
+                if (this.shakeAmount === 0) return { x: 0, y: 0 };
+                
+                return {
+                    x: (Math.random() - 0.5) * this.shakeAmount * 2,
+                    y: (Math.random() - 0.5) * this.shakeAmount * 2
+                };
+            }
+            
+            apply(offsetX = 0, offsetY = 0) {
+                const shakeOffset = this.getOffset();
+                this.canvas.style.transform = `translate(${offsetX + shakeOffset.x}px, ${offsetY + shakeOffset.y}px)`;
+            }
+        }
+
+        // ============================================
+        // ЭТАП 2: HIT SOUND MANAGER (обновленный)
+        // ============================================
+        class HitSoundManager {
+            constructor() {
+                this.audioContext = null;
+                this.initAudioContext();
+            }
+            
+            initAudioContext() {
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.error('Web Audio API not supported:', e);
+                }
+            }
+            
+            createBeep(frequency, duration, volume) {
+                if (!this.audioContext) {
+                    this.initAudioContext();
+                    if (!this.audioContext) return;
+                }
+                
+                const oscillator = this.audioContext.createOscillator();
+                const gain = this.audioContext.createGain();
+                
+                oscillator.connect(gain);
+                gain.connect(this.audioContext.destination);
+                
+                oscillator.frequency.value = frequency;
+                oscillator.type = 'sine';
+                
+                gain.gain.setValueAtTime(volume, this.audioContext.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + duration);
+                
+                oscillator.start(this.audioContext.currentTime);
+                oscillator.stop(this.audioContext.currentTime + duration);
+            }
+            
+            play(quality, comboCount = 0) {
+                const sounds = {
+                    PERFECT: () => this.createBeep(800, 0.1, 0.3),
+                    GREAT: () => this.createBeep(600, 0.1, 0.25),
+                    GOOD: () => this.createBeep(400, 0.1, 0.2),
+                    OKAY: () => this.createBeep(200, 0.1, 0.15),
+                    MISS: () => this.createBeep(100, 0.15, 0.3)
+                };
+                
+                if (sounds[quality]) {
+                    sounds[quality]();
+                }
+                
+                // Milestone sound каждые 50 combo
+                if (comboCount > 0 && comboCount % 50 === 0) {
+                    this.createBeep(1000, 0.15, 0.4);
+                }
+            }
+        }
+
+        // ============================================
+        // ЭТАП 2: JUDGEMENT DISPLAY
+        // ============================================
+        class JudgementDisplay {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.judgements = [];
+            }
+            
+            show(quality, x, y) {
+                const judgementData = {
+                    text: TIMING_WINDOWS[quality].text,
+                    color: TIMING_WINDOWS[quality].color,
+                    x, y,
+                    vx: 0,
+                    vy: -100,
+                    lifetime: 1000,
+                    age: 0,
+                    size: 48,
+                    opacity: 1.0
+                };
+                
+                this.judgements.push(judgementData);
+            }
+            
+            update(deltaTime) {
+                this.judgements = this.judgements.filter(j => {
+                    j.age += deltaTime;
+                    j.y += j.vy * (deltaTime / 1000);
+                    j.opacity = 1.0 - (j.age / j.lifetime);
+                    return j.age < j.lifetime;
+                });
+            }
+            
+            draw() {
+                this.judgements.forEach(j => {
+                    this.ctx.save();
+                    this.ctx.globalAlpha = j.opacity;
+                    this.ctx.font = `bold ${j.size}px Arial`;
+                    this.ctx.fillStyle = j.color;
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    
+                    // Shadow effect
+                    this.ctx.shadowColor = j.color;
+                    this.ctx.shadowBlur = 20;
+                    this.ctx.fillText(j.text, j.x, j.y);
+                    
+                    this.ctx.restore();
+                });
+            }
+        }
+
+        // ============================================
+        // ЭТАП 3: COMBO SYSTEM
+        // ============================================
+        class ComboSystem {
+            constructor() {
+                this.combo = 0;
+                this.maxCombo = 0;
+                this.multiplier = 1;
+                this.multiplierLevel = 0;
+                this.multiplierProgress = 0;
+                
+                // Пороги для повышения множителя
+                this.MULTIPLIER_THRESHOLDS = [4, 8, 16, 32];  // попадания для каждого уровня
+                this.MULTIPLIER_VALUES = [1, 2, 4, 8];        // значения множителей
+            }
+            
+            registerHit(basePoints, quality) {
+                // Увеличиваем combo
+                this.combo++;
+                this.maxCombo = Math.max(this.maxCombo, this.combo);
+                
+                // Увеличиваем прогресс множителя
+                this.multiplierProgress++;
+                
+                // Проверяем пороги множителя
+                if (this.multiplierLevel < this.MULTIPLIER_THRESHOLDS.length) {
+                    const nextThreshold = this.MULTIPLIER_THRESHOLDS[this.multiplierLevel];
+                    
+                    if (this.multiplierProgress >= nextThreshold) {
+                        this.multiplierLevel++;
+                        this.multiplier = this.MULTIPLIER_VALUES[this.multiplierLevel];
+                        this.multiplierProgress = 0;
+                        
+                        // Trigger callback для UI update
+                        if (this.onMultiplierLevelUp) {
+                            this.onMultiplierLevelUp(this.multiplier);
+                        }
+                    }
+                }
+                
+                // Возвращаем финальные очки
+                return Math.round(basePoints * this.multiplier);
+            }
+            
+            registerMiss() {
+                this.combo = 0;
+                this.multiplierLevel = 0;
+                this.multiplier = 1;
+                this.multiplierProgress = 0;
+                
+                if (this.onComboBreak) {
+                    this.onComboBreak();
+                }
+            }
+            
+            getUIDisplay() {
+                const currentThreshold = this.multiplierLevel < this.MULTIPLIER_THRESHOLDS.length
+                    ? this.MULTIPLIER_THRESHOLDS[this.multiplierLevel]
+                    : this.MULTIPLIER_THRESHOLDS[this.MULTIPLIER_THRESHOLDS.length - 1];
+                
+                return {
+                    combo: this.combo,
+                    multiplier: `${this.multiplier}x`,
+                    multiplierProgress: this.multiplierProgress,
+                    multiplierMax: currentThreshold
+                };
+            }
+        }
+
+        // ============================================
+        // ЭТАП 3: FEVER MODE
+        // ============================================
+        class FeverMode {
+            constructor() {
+                this.isActive = false;
+                this.duration = 8000; // 8 секунд
+                this.remaining = 0;
+                this.progressToActivation = 0;
+                this.maxProgress = 100;
+            }
+            
+            addProgress(comboCount) {
+                if (this.isActive) return;
+                
+                // Fever прогрессирует каждые 30 combo
+                const progress = Math.floor(comboCount / 30) * 10;
+                this.progressToActivation = progress;
+                
+                if (this.progressToActivation >= this.maxProgress && !this.isActive) {
+                    this.activate();
+                }
+            }
+            
+            activate() {
+                this.isActive = true;
+                this.remaining = this.duration;
+                this.progressToActivation = 0;
+                
+                if (this.onActivate) {
+                    this.onActivate();
+                }
+            }
+            
+            update(deltaTime) {
+                if (this.isActive) {
+                    this.remaining -= deltaTime;
+                    if (this.remaining <= 0) {
+                        this.isActive = false;
+                        if (this.onDeactivate) {
+                            this.onDeactivate();
+                        }
+                    }
+                }
+            }
+            
+            getMultiplierBonus() {
+                return this.isActive ? 2.0 : 1.0;  // Удваивает текущий множитель
+            }
+            
+            getVisualEffect() {
+                if (!this.isActive) return null;
+                
+                const intensity = 1.0 - (this.remaining / this.duration);
+                return {
+                    screenFlash: intensity > 0.3,
+                    particleIntensity: 1.5,
+                    screenShake: intensity * 2,
+                    color: `hsl(200, 100%, ${50 + intensity * 20}%)`
+                };
+            }
+        }
+
+        // ============================================
+        // ЭТАП 3: MILESTONE REWARDS
+        // ============================================
+        class MilestoneRewards {
+            constructor() {
+                this.milestones = [10, 25, 50, 100, 250, 500];
+                this.unlocked = new Set();
+            }
+            
+            checkAndGrant(comboCount) {
+                const milestones = this.milestones.filter(m => m === comboCount && !this.unlocked.has(m));
+                
+                milestones.forEach(milestone => {
+                    this.unlocked.add(milestone);
+                    
+                    const rewards = {
+                        10: { points: 500, text: '⭐ 10 COMBO!' },
+                        25: { points: 1000, text: '✨ 25 COMBO!' },
+                        50: { points: 2500, text: '🎯 50 COMBO!' },
+                        100: { points: 5000, text: '🔥 100 COMBO!' },
+                        250: { points: 10000, text: '💎 250 COMBO!' },
+                        500: { points: 25000, text: '👑 500 COMBO!' }
+                    };
+                    
+                    const reward = rewards[milestone];
+                    if (this.onMilestoneUnlocked) {
+                        this.onMilestoneUnlocked(milestone, reward);
+                    }
+                });
+            }
+        }
+
+        // ============================================
+        // ЭТАП 4: HEALTH SYSTEM
+        // ============================================
+        class HealthSystem {
+            constructor() {
+                this.currentHealth = 100;
+                this.maxHealth = 100;
+                this.isDead = false;
+                this.damageRate = 8;  // % за мисс на normal сложности
+            }
+            
+            processHit(quality) {
+                const healthChanges = {
+                    PERFECT: 2,    // +2 HP
+                    GREAT: 1,      // +1 HP
+                    GOOD: 0,       // Neutral
+                    OKAY: -2,      // -2 HP
+                    MISS: -this.damageRate  // -8% HP
+                };
+                
+                const delta = healthChanges[quality] || 0;
+                this.currentHealth = Math.max(0, Math.min(this.maxHealth, this.currentHealth + delta));
+                
+                if (this.currentHealth === 0) {
+                    this.isDead = true;
+                    if (this.onDeath) {
+                        this.onDeath();
+                    }
+                }
+                
+                return {
+                    currentHealth: this.currentHealth,
+                    isDead: this.isDead
+                };
+            }
+            
+            getHealthUI() {
+                const percentage = (this.currentHealth / this.maxHealth) * 100;
+                let color = '#00FF00';  // Green
+                
+                if (percentage < 50) color = '#FFFF00';  // Yellow
+                if (percentage < 25) color = '#FF6600';  // Orange
+                if (percentage < 10) color = '#FF0000';  // Red
+                
+                return {
+                    percentage,
+                    color,
+                    text: `${Math.ceil(percentage)}%`
+                };
+            }
+            
+            reset() {
+                this.currentHealth = this.maxHealth;
+                this.isDead = false;
+            }
+        }
+
+        // ============================================
+        // ЭТАП 4: GAME OVER SCREEN
+        // ============================================
+        class GameOverScreen {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.isVisible = false;
+                this.stats = {};
+            }
+            
+            show(stats) {
+                this.isVisible = true;
+                this.stats = stats;  // { score, combo, accuracy, health }
+            }
+            
+            hide() {
+                this.isVisible = false;
+            }
+            
+            draw() {
+                if (!this.isVisible) return;
+                
+                // Semi-transparent overlay
+                this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Game Over text
+                this.ctx.font = 'bold 72px Arial';
+                this.ctx.fillStyle = '#FF0000';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('GAME OVER', this.canvas.width / 2, 150);
+                
+                // Stats display
+                this.ctx.font = '24px Arial';
+                this.ctx.fillStyle = '#FFFFFF';
+                const startY = 250;
+                const lineHeight = 50;
+                
+                this.ctx.fillText(`Score: ${this.stats.score}`, this.canvas.width / 2, startY);
+                this.ctx.fillText(`Max Combo: ${this.stats.combo}`, this.canvas.width / 2, startY + lineHeight);
+                this.ctx.fillText(`Accuracy: ${Math.round(this.stats.accuracy)}%`, this.canvas.width / 2, startY + lineHeight * 2);
+                
+                // Buttons
+                this.ctx.font = '20px Arial';
+                this.ctx.fillStyle = '#00FF00';
+                this.ctx.fillText('RESTART [R] - MENU [M]', this.canvas.width / 2, this.canvas.height - 50);
+            }
+            
+            handleKeyPress(key) {
+                if (this.isVisible) {
+                    if (key === 'r' || key === 'R') return 'restart';
+                    if (key === 'm' || key === 'M') return 'menu';
+                }
+                return null;
+            }
+        }
+
+        // ============================================
+        // ЭТАП 8: PERFORMANCE MONITOR
+        // ============================================
+        class PerformanceMonitor {
+            constructor() {
+                this.fps = 0;
+                this.frameCount = 0;
+                this.lastTime = Date.now();
+            }
+            
+            update() {
+                this.frameCount++;
+                const now = Date.now();
+                
+                if (now - this.lastTime >= 1000) {
+                    this.fps = this.frameCount;
+                    this.frameCount = 0;
+                    this.lastTime = now;
+                    if (this.fps < 30) {
+                        console.warn(`⚠️ Low FPS: ${this.fps}`);
+                    }
+                }
+            }
+            
+            draw(ctx, canvas) {
+                ctx.font = '12px Arial';
+                ctx.fillStyle = this.fps >= 30 ? '#00FF00' : '#FF0000';
+                ctx.fillText(`FPS: ${this.fps}`, 10, canvas.height - 10);
+            }
+        }
+
+        // ============================================
+        // ЭТАП 6: TRACK UPLOAD MANAGER
+        // ============================================
+        class TrackUploadManager {
+            constructor(token) {
+                this.token = token;
+                this.userTracks = [];
+            }
+            
+            // Инициализировать форму загрузки
+            initializeUploadForm() {
+                const uploadForm = document.createElement('div');
+                uploadForm.id = 'track-upload-form';
+                uploadForm.style.cssText = 'padding: 20px; background: rgba(0, 0, 0, 0.8); border-radius: 10px; margin: 10px; display: none;';
+                uploadForm.innerHTML = `
+                    <h3 style="color: #00ffff; margin-bottom: 15px;">Upload Your Music</h3>
+                    <input type="file" id="track-file-input" accept="audio/mp3" style="margin: 10px 0; width: 100%; padding: 10px; border-radius: 5px;" />
+                    <input type="text" id="track-title-input" placeholder="Song Title" style="margin: 10px 0; width: 100%; padding: 10px; border-radius: 5px;" />
+                    <input type="text" id="track-artist-input" placeholder="Artist Name" style="margin: 10px 0; width: 100%; padding: 10px; border-radius: 5px;" />
+                    <button id="upload-track-btn" style="padding: 10px 20px; background: #00ff00; color: #000; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Upload</button>
+                    <div id="upload-status" style="margin-top: 10px; color: #00ff00;"></div>
+                `;
+                
+                document.body.appendChild(uploadForm);
+                
+                // Event listeners
+                document.getElementById('upload-track-btn').addEventListener('click', () => {
+                    this.uploadTrack();
+                });
+            }
+            
+            // Загрузить трек на сервер
+            async uploadTrack() {
+                const fileInput = document.getElementById('track-file-input');
+                const titleInput = document.getElementById('track-title-input');
+                const artistInput = document.getElementById('track-artist-input');
+                const statusDiv = document.getElementById('upload-status');
+                
+                if (!fileInput.files.length) {
+                    statusDiv.textContent = 'Please select a file';
+                    statusDiv.style.color = '#ff0000';
+                    return;
+                }
+                
+                const file = fileInput.files[0];
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('token', this.token);
+                formData.append('title', titleInput.value);
+                formData.append('artist', artistInput.value);
+                
+                try {
+                    statusDiv.textContent = 'Uploading...';
+                    statusDiv.style.color = '#00ffff';
+                    
+                    const response = await fetch('/api/upload-track', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        statusDiv.textContent = '✓ Uploaded successfully!';
+                        statusDiv.style.color = '#00FF00';
+                        
+                        // Очистить форму
+                        fileInput.value = '';
+                        titleInput.value = '';
+                        artistInput.value = '';
+                        
+                        // Обновить список песен
+                        await this.loadUserTracks();
+                    } else {
+                        statusDiv.textContent = `✗ Error: ${data.error}`;
+                        statusDiv.style.color = '#FF0000';
+                    }
+                } catch (error) {
+                    statusDiv.textContent = `✗ Upload failed: ${error.message}`;
+                    statusDiv.style.color = '#FF0000';
+                }
+            }
+            
+            // Загрузить список пользовательских песен с сервера
+            async loadUserTracks() {
+                if (!this.token) return;
+                
+                try {
+                    const response = await fetch(`/api/user-tracks?token=${encodeURIComponent(this.token)}`);
+                    const data = await response.json();
+                    
+                    this.userTracks = data.tracks || [];
+                    this.displayUserTracks();
+                } catch (error) {
+                    console.error('Failed to load user tracks:', error);
+                }
+            }
+            
+            // Отобразить список пользовательских песен
+            displayUserTracks() {
+                let trackList = document.getElementById('user-track-list');
+                if (!trackList) {
+                    trackList = document.createElement('div');
+                    trackList.id = 'user-track-list';
+                    trackList.style.cssText = 'padding: 20px; background: rgba(0, 0, 0, 0.8); border-radius: 10px; margin: 10px;';
+                    document.body.appendChild(trackList);
+                }
+                
+                trackList.innerHTML = '<h3 style="color: #00ffff;">Your Music</h3>';
+                
+                if (this.userTracks.length === 0) {
+                    trackList.innerHTML += '<p style="color: #888;">No tracks uploaded yet.</p>';
+                    return;
+                }
+                
+                this.userTracks.forEach(track => {
+                    const trackEl = document.createElement('div');
+                    trackEl.style.cssText = 'padding: 10px; background: rgba(0, 255, 0, 0.1); margin: 5px; border-radius: 5px;';
+                    trackEl.innerHTML = `
+                        <div><strong>${track.title}</strong> - ${track.artist}</div>
+                        <button onclick="window.game?.selectUserTrack('${track.id}')" style="margin: 5px; padding: 5px 10px; background: #00ff00; border: none; border-radius: 3px; cursor: pointer;">Play</button>
+                    `;
+                    trackList.appendChild(trackEl);
+                });
             }
         }
 
@@ -1227,10 +1996,12 @@
                 const effect = document.createElement('div');
                 effect.className = `hit-effect ${quality.toLowerCase()}`;
                 
+                // ЭТАП 1: Обновлено для 5 уровней
                 const texts = {
-                    PERFECT: '🎯 PERFECT!',
-                    GOOD: '✓ GOOD',
-                    BAD: '! BAD',
+                    PERFECT: '🌟 PERFECT!',
+                    GREAT: '✨ GREAT!',
+                    GOOD: 'GOOD',
+                    OKAY: 'OK',
                     MISS: '✗ MISS'
                 };
                 
@@ -1292,6 +2063,38 @@
                 // TASK 5: Инициализировать SoundManager
                 this.soundManager = new SoundManager();
 
+                // ЭТАП 1: Инициализировать LatencyCalibration
+                this.latencyCalibration = new LatencyCalibration();
+
+                // ЭТАП 2: Инициализировать системы feedback
+                this.particleHitEffect = new ParticleHitEffect(this.ctx);
+                this.screenShakeEffect = new ScreenShakeEffect(this.canvas);
+                this.hitSoundManager = new HitSoundManager();
+                this.judgementDisplay = new JudgementDisplay(this.canvas);
+
+                // ЭТАП 3: Инициализировать системы combo
+                this.comboSystem = new ComboSystem();
+                this.feverMode = new FeverMode();
+                this.milestoneRewards = new MilestoneRewards();
+
+                // ЭТАП 4: Инициализировать системы здоровья
+                this.healthSystem = new HealthSystem();
+                this.gameOverScreen = new GameOverScreen(this.canvas);
+
+                // ЭТАП 5: Инициализировать GameUI
+                this.gameUI = new GameUI(this.canvas);
+
+                // ЭТАП 6: Инициализировать TrackUploadManager
+                this.trackUploadManager = new TrackUploadManager(GAME_TOKEN);
+                if (GAME_TOKEN) {
+                    this.trackUploadManager.initializeUploadForm();
+                    this.trackUploadManager.loadUserTracks();
+                }
+
+                // ЭТАП 7: Инициализировать ScoringEngine
+                this.scoringEngine = new ScoringEngine();
+                this.personalBestTracker = null;
+
                 this.init();
             }
 
@@ -1336,7 +2139,7 @@
                 CONFIG.CANVAS_HEIGHT = canvasHeight;
                 
                 // Recalculate HIT ZONE position (should be at 85-90% of screen height)
-                CONFIG.HIT_ZONE_Y = CONFIG.CANVAS_HEIGHT * 0.87;
+                CONFIG.HIT_ZONE_Y = CONFIG.CANVAS_HEIGHT * 0.85;  // Moved lower for better mobile UX
                 
                 // Scale factors for touch input
                 const rect = this.canvas.getBoundingClientRect();
@@ -1450,10 +2253,18 @@
                     });
                 });
 
-                // Keyboard (for pause)
+                // Keyboard (for pause and game over)
                 document.addEventListener('keydown', (e) => {
                     if (e.key === 'Escape' && gameState.isPlaying && !gameState.isPaused) {
                         this.pauseGame();
+                    }
+                    
+                    // ЭТАП 4: Обработка клавиш для GameOverScreen
+                    const action = this.gameOverScreen.handleKeyPress(e.key);
+                    if (action === 'restart') {
+                        this.startGame();
+                    } else if (action === 'menu') {
+                        this.showMenu();
                     }
                 });
             }
@@ -1695,9 +2506,21 @@
                 gameState.combo = 0;
                 gameState.maxCombo = 0;
                 gameState.hp = CONFIG.MAX_HP;
+                
+                // ЭТАП 3: Сбросить системы combo
+                this.comboSystem = new ComboSystem();
+                this.feverMode = new FeverMode();
+                this.milestoneRewards = new MilestoneRewards();
+                
+                // ЭТАП 4: Сбросить HealthSystem
+                this.healthSystem.reset();
+                this.gameOverScreen.hide();
+                
+                // ЭТАП 1: Обновлено для 5 уровней
                 gameState.perfectHits = 0;
+                gameState.greatHits = 0;
                 gameState.goodHits = 0;
-                gameState.badHits = 0;
+                gameState.okayHits = 0;
                 gameState.missedHits = 0;
                 gameState.totalNotes = 0;
                 gameState.gameTime = 0;
@@ -1807,11 +2630,20 @@
                     this.animationId = null;
                 }
 
-                // Update stats
+                // ЭТАП 4: Использовать GameOverScreen
                 const accuracy = gameState.totalNotes > 0
-                    ? ((gameState.perfectHits + gameState.goodHits + gameState.badHits) / gameState.totalNotes * 100).toFixed(1)
+                    ? ((gameState.perfectHits + gameState.greatHits + gameState.goodHits) / gameState.totalNotes * 100).toFixed(1)
                     : '0.0';
 
+                // Показать GameOverScreen
+                this.gameOverScreen.show({
+                    score: Math.floor(gameState.score),
+                    combo: gameState.maxCombo,
+                    accuracy: parseFloat(accuracy),
+                    health: this.healthSystem.currentHealth
+                });
+
+                // Обновить DOM элементы (для совместимости)
                 document.getElementById('finalScore').textContent = gameState.score;
                 document.getElementById('finalCombo').textContent = gameState.maxCombo;
                 document.getElementById('finalAccuracy').textContent = accuracy + '%';
@@ -1824,10 +2656,42 @@
                     score: Math.floor(gameState.score),
                     combo: gameState.maxCombo,
                     perfect: gameState.perfectHits,
+                    great: gameState.greatHits || 0,
                     good: gameState.goodHits,
-                    bad: gameState.badHits,
+                    okay: gameState.okayHits || 0,
                     miss: gameState.missedHits
                 };
+
+                // ✅ NEW: Save score to localStorage for persistence
+                try {
+                    const localScoreData = {
+                        score: Math.floor(gameState.score),
+                        combo: gameState.maxCombo,
+                        perfect: gameState.perfectHits,
+                        great: gameState.greatHits || 0,
+                        good: gameState.goodHits,
+                        okay: gameState.okayHits || 0,
+                        miss: gameState.missedHits,
+                        accuracy: accuracy,
+                        difficulty: gameState.difficulty,
+                        timestamp: new Date().toISOString(),
+                        trackId: gameState.currentTrack?.id || 'unknown'
+                    };
+                    
+                    // Get existing scores from localStorage
+                    let allScores = JSON.parse(localStorage.getItem('rhythmGameScores') || '[]');
+                    allScores.push(localScoreData);
+                    
+                    // Keep only last 50 scores to avoid storage overflow
+                    if (allScores.length > 50) {
+                        allScores = allScores.slice(-50);
+                    }
+                    
+                    localStorage.setItem('rhythmGameScores', JSON.stringify(allScores));
+                    console.log('✅ Score saved to localStorage:', localScoreData);
+                } catch (e) {
+                    console.error('❌ Failed to save score to localStorage:', e);
+                }
 
                 // Reset rank and message displays
                 const rankDisplay = document.getElementById('rankDisplay');
@@ -1850,9 +2714,9 @@
             }
 
             async sendScoreToBackend() {
-                // Send game over analytics regardless of token
+                // ЭТАП 1: Send game over analytics с обновленным расчетом accuracy
                 const accuracy = gameState.totalNotes > 0 
-                    ? ((gameState.perfectHits + gameState.goodHits) / gameState.totalNotes * 100).toFixed(1) 
+                    ? ((gameState.perfectHits + gameState.greatHits + gameState.goodHits) / gameState.totalNotes * 100).toFixed(1) 
                     : '0.0';
                 
                 const payload = {
@@ -1861,7 +2725,9 @@
                     maxCombo: gameState.maxCombo,
                     accuracy: accuracy,
                     perfect: gameState.perfectHits,
+                    great: gameState.greatHits || 0,
                     good: gameState.goodHits,
+                    okay: gameState.okayHits || 0,
                     miss: gameState.missedHits,
                     difficulty: gameState.difficulty,
                     latency: gameState.audioLatency,
@@ -2073,8 +2939,9 @@
             }
 
             handleLaneInput(lane) {
-                // PATCH #4: Apply latency correctly
-                const clickTime = gameState.gameTime; // БЕЗ latency
+                // ЭТАП 1: Используем новую систему timing с компенсацией задержки
+                const rawClickTime = gameState.gameTime;
+                const clickTime = this.latencyCalibration.getCompensatedTime(rawClickTime);
                 
                 // Находим ближайшую ноту в этой дорожке
                 let closestNote = null;
@@ -2083,12 +2950,12 @@
                 for (const note of gameState.notes) {
                     if (note.lane !== lane || note.hit || note.missed) continue;
                     
-                    // Apply latency to target time, not click time
+                    // Apply latency to target time
                     const adjustedTargetTime = note.targetTime + gameState.audioLatency / 1000;
                     const timeDiff = Math.abs(clickTime - adjustedTargetTime);
                     
-                    // Ищем только ноты в окне попадания (150ms)
-                    if (timeDiff < CONFIG.TIMING.BAD / 1000 && timeDiff < closestTimeDiff) {
+                    // Ищем только ноты в окне попадания (200ms для OKAY)
+                    if (timeDiff < CONFIG.TIMING.OKAY / 1000 && timeDiff < closestTimeDiff) {
                         closestNote = note;
                         closestTimeDiff = timeDiff;
                     }
@@ -2100,75 +2967,95 @@
                     return;
                 }
                 
-                // ОПРЕДЕЛЯЕМ КАЧЕСТВО ПОПАДАНИЯ
-                let quality, baseScore, hpGain, color, frequency, vibrationPattern;
-                const timeDiffMs = closestTimeDiff * 1000; // Конвертируем в миллисекунды
+                // ЭТАП 1: Используем calculateHitQuality для определения качества
+                const adjustedTargetTime = closestNote.targetTime + gameState.audioLatency / 1000;
+                const hitResult = calculateHitQuality(clickTime, adjustedTargetTime);
                 
-                if (timeDiffMs <= CONFIG.TIMING.PERFECT) {
-                    quality = 'PERFECT';
-                    baseScore = CONFIG.SCORE.PERFECT;
-                    hpGain = CONFIG.HP_GAIN.PERFECT;
-                    color = CONFIG.COLORS.PERFECT;
+                const quality = hitResult.quality;
+                const baseScore = hitResult.points;
+                const hpGain = CONFIG.HP_GAIN[quality];
+                const color = hitResult.color;
+                
+                // Звуки и вибрация в зависимости от качества
+                let frequency, vibrationPattern;
+                if (quality === 'PERFECT') {
                     frequency = 800;
                     vibrationPattern = [80];
                     gameState.perfectHits++;
-                    
-                } else if (timeDiffMs <= CONFIG.TIMING.GOOD) {
-                    quality = 'GOOD';
-                    baseScore = CONFIG.SCORE.GOOD;
-                    hpGain = CONFIG.HP_GAIN.GOOD;
-                    color = CONFIG.COLORS.GOOD;
+                } else if (quality === 'GREAT') {
                     frequency = 700;
+                    vibrationPattern = [60];
+                    gameState.greatHits = (gameState.greatHits || 0) + 1;
+                } else if (quality === 'GOOD') {
+                    frequency = 600;
                     vibrationPattern = [50];
                     gameState.goodHits++;
-                    
+                } else if (quality === 'OKAY') {
+                    frequency = 500;
+                    vibrationPattern = [30];
+                    gameState.okayHits = (gameState.okayHits || 0) + 1;
                 } else {
-                    quality = 'BAD';
-                    baseScore = CONFIG.SCORE.BAD;
-                    hpGain = CONFIG.HP_GAIN.BAD;
-                    color = CONFIG.COLORS.BAD;
-                    frequency = 600;
+                    frequency = 400;
                     vibrationPattern = [20];
-                    gameState.badHits++;
                 }
                 
-                // ПРИМЕНИТЬ COMBO МНОЖИТЕЛЬ
-                let multiplier = 1.0;
-                if (gameState.combo >= 30) multiplier = 2.5;
-                else if (gameState.combo >= 15) multiplier = 2.0;
-                else if (gameState.combo >= 5) multiplier = 1.5;
+                // ЭТАП 3: Использовать новую систему combo
+                const finalScore = this.comboSystem.registerHit(baseScore, quality);
                 
-                const finalScore = Math.floor(baseScore * multiplier);
+                // ЭТАП 3: Применить Fever mode multiplier
+                const feverBonus = this.feverMode.getMultiplierBonus();
+                const scoreWithFever = Math.floor(finalScore * feverBonus);
+                
+                // ЭТАП 3: Проверить milestones
+                this.milestoneRewards.checkAndGrant(this.comboSystem.combo);
+                
+                // ЭТАП 4: Обновить здоровье через HealthSystem
+                const healthResult = this.healthSystem.processHit(quality);
+                gameState.hp = healthResult.currentHealth;
                 
                 // ОБНОВИТЬ СОСТОЯНИЕ ИГРЫ
                 closestNote.hit = true;
-                gameState.combo++;
-                gameState.maxCombo = Math.max(gameState.maxCombo, gameState.combo);
-                gameState.score += finalScore;
-                gameState.hp = Math.min(CONFIG.MAX_HP, gameState.hp + hpGain);
+                gameState.combo = this.comboSystem.combo;
+                gameState.maxCombo = Math.max(gameState.maxCombo, this.comboSystem.combo);
+                gameState.score += scoreWithFever;
+                
+                // Проверить смерть
+                if (healthResult.isDead) {
+                    this.gameOver();
+                }
                 
                 // UI Feedback
                 gameState.lastHitResult = quality;
                 gameState.lastHitTime = gameState.gameTime;
                 
-                // TASK 1: Показать визуальный feedback
+                // ЭТАП 2: Использовать новые системы feedback
                 const centerX = CONFIG.CANVAS_WIDTH / 2;
                 const totalWidth = CONFIG.LANES * CONFIG.LANE_WIDTH;
                 const startX = centerX - totalWidth / 2;
                 const noteX = startX + closestNote.lane * CONFIG.LANE_WIDTH + CONFIG.LANE_WIDTH / 2;
                 const noteY = CONFIG.HIT_ZONE_Y;
+                
+                // Старый HitEffectManager (для совместимости)
                 this.hitEffectManager.showEffect(quality, noteX, noteY);
                 
-                // TASK 5: Audio feedback через SoundManager
-                const soundType = quality === 'PERFECT' ? 'perfect' : quality === 'GOOD' ? 'good' : 'bad';
-                this.soundManager.playTone(frequency, 0.05, soundType);
+                // ЭТАП 2: ParticleHitEffect
+                this.particleHitEffect.createHitParticles(noteX, noteY, quality);
+                
+                // ЭТАП 2: ScreenShakeEffect
+                this.screenShakeEffect.triggerShake(quality, gameState.combo);
+                
+                // ЭТАП 2: HitSoundManager
+                this.hitSoundManager.play(quality, gameState.combo);
+                
+                // ЭТАП 2: JudgementDisplay
+                this.judgementDisplay.show(quality, noteX, noteY);
                 
                 // Vibration feedback
                 if (navigator.vibrate) {
                     navigator.vibrate(vibrationPattern);
                 }
                 
-                // PARTICLES
+                // Старые particles (для совместимости)
                 this.spawnHitParticles(closestNote.lane, color);
                 
                 // ANALYTICS
@@ -2223,7 +3110,16 @@
                 // Get difficulty settings
                 const diff = DIFFICULTY[gameState.difficulty];
 
-                // Update particles
+                // ЭТАП 2: Обновить системы feedback
+                this.particleHitEffect.update(deltaTime);
+                this.screenShakeEffect.update(deltaTime);
+                this.judgementDisplay.update(deltaTime);
+
+                // ЭТАП 3: Обновить Fever mode
+                this.feverMode.update(deltaTime);
+                this.feverMode.addProgress(this.comboSystem.combo);
+
+                // Update particles (старые)
                 for (let i = gameState.particles.length - 1; i >= 0; i--) {
                     const particle = gameState.particles[i];
                     particle.update(deltaTime);
@@ -2274,15 +3170,28 @@
                     const endY = CONFIG.HIT_ZONE_Y;
                     note.y = startY + (progress * (endY - startY));
                     
-                    // PATCH #3: Remove missed notes
-                    if (gameState.gameTime > note.targetTime + 0.15 && !note.missed) {
+                    // ЭТАП 3: Remove missed notes с обновлением combo системы
+                    if (gameState.gameTime > note.targetTime + 0.2 && !note.missed) {
                         note.missed = true;
+                        // ЭТАП 3: Сбросить combo через ComboSystem
+                        this.comboSystem.registerMiss();
                         gameState.combo = 0;
                         gameState.missedHits++;
-                        gameState.hp = Math.max(0, gameState.hp + CONFIG.HP_GAIN.MISS);
                         
-                        // TASK 5: Звук для miss
-                        this.soundManager.playTone(220, 0.05, 'miss');
+                        // ЭТАП 7: Записать miss в ScoringEngine
+                        this.scoringEngine.recordMiss();
+                        
+                        // ЭТАП 4: Обновить здоровье через HealthSystem
+                        const healthResult = this.healthSystem.processHit('MISS');
+                        gameState.hp = healthResult.currentHealth;
+                        
+                        // ЭТАП 2: Звук для miss через HitSoundManager
+                        this.hitSoundManager.play('MISS', gameState.combo);
+                        
+                        // Проверить смерть
+                        if (healthResult.isDead) {
+                            this.gameOver();
+                        }
                         
                         // TASK 6: Screen shake при miss
                         this.applyScreenShake(3, 0.15);
@@ -2307,11 +3216,15 @@
                     }
                 }
 
-                // HP drain (меньше чем было)
-                gameState.hp = Math.max(0, gameState.hp - CONFIG.HP_DRAIN_RATE * deltaSeconds * 0.1);
+                // ЭТАП 4: HP drain через HealthSystem (опционально)
+                // Небольшой drain со временем можно добавить здесь
+                // gameState.hp = Math.max(0, gameState.hp - CONFIG.HP_DRAIN_RATE * deltaSeconds * 0.1);
+                
+                // Синхронизировать gameState.hp с healthSystem
+                gameState.hp = this.healthSystem.currentHealth;
 
-                // Check game over
-                if (gameState.hp <= 0) {
+                // Check game over через HealthSystem
+                if (this.healthSystem.isDead) {
                     this.gameOver();
                 }
 
@@ -2478,6 +3391,33 @@
                 }
             }
 
+            // ЭТАП 6: Выбрать пользовательский трек
+            async selectUserTrack(trackId) {
+                const track = this.trackUploadManager.userTracks.find(t => t.id === trackId);
+                
+                if (!track) {
+                    console.error('Track not found');
+                    return;
+                }
+                
+                gameState.currentTrack = {
+                    ...track,
+                    url: `/api/track-file/${track.filename}`
+                };
+                
+                // Генерировать notes для трека
+                CONFIG.BEATMAP.BPM = track.bpm || 140;
+                CONFIG.BEATMAP.TRACK_DURATION = track.duration || 180;
+                
+                // Load audio
+                await this.loadAudioFile(gameState.currentTrack.url);
+                
+                // Update UI
+                this.updateTrackInfo();
+                
+                console.log(`🎵 Selected user track: ${track.title} by ${track.artist}`);
+            }
+
             async loadAudioFile(url) {
                 return new Promise((resolve, reject) => {
                     // Создаем новый Audio элемент
@@ -2618,8 +3558,8 @@
             render() {
                 const ctx = this.ctx;
 
-                // TASK 6: Применить screen shake
-                const shakeOffset = this.getShakeOffset();
+                // ЭТАП 2: Применить screen shake через новый класс
+                const shakeOffset = this.screenShakeEffect.getOffset();
                 ctx.save();
                 ctx.translate(shakeOffset.x, shakeOffset.y);
 
@@ -2639,11 +3579,19 @@
                 // Notes
                 this.renderNotes();
 
-                // Particles
+                // ЭТАП 2: Отрисовать новые эффекты
+                this.particleHitEffect.draw();
+                this.judgementDisplay.draw();
+
+                // Particles (старые)
                 this.renderParticles();
 
-                // UI
-                this.renderUI();
+                // ЭТАП 5: Обновить и отрисовать GameUI
+                this.gameUI.update(gameState, this.comboSystem, this.healthSystem);
+                this.gameUI.draw();
+
+                // ЭТАП 4: Отрисовать GameOverScreen поверх всего
+                this.gameOverScreen.draw();
 
                 ctx.restore();
             }
@@ -2786,7 +3734,7 @@
                     ctx.fillText(`Combo: ${gameState.combo}`, 20, 85);
                 }
 
-                // Последний результат hit (PERFECT / GOOD / BAD)
+                // ЭТАП 1: Последний результат hit (5 уровней)
                 if (gameState.lastHitResult && gameState.gameTime - gameState.lastHitTime < 0.5) {
                     const elapsed = gameState.gameTime - gameState.lastHitTime;
                     const opacity = Math.max(0, 1 - elapsed / 0.5);
@@ -2798,11 +3746,15 @@
                     let color = '#ffffff';
                     
                     if (gameState.lastHitResult === 'PERFECT') {
-                        color = '#00ff00';
+                        color = CONFIG.COLORS.PERFECT;
+                    } else if (gameState.lastHitResult === 'GREAT') {
+                        color = CONFIG.COLORS.GREAT;
                     } else if (gameState.lastHitResult === 'GOOD') {
-                        color = '#ffff00';
-                    } else if (gameState.lastHitResult === 'BAD') {
-                        color = '#ff9900';
+                        color = CONFIG.COLORS.GOOD;
+                    } else if (gameState.lastHitResult === 'OKAY') {
+                        color = CONFIG.COLORS.OKAY;
+                    } else if (gameState.lastHitResult === 'MISS') {
+                        color = CONFIG.COLORS.MISS;
                     }
                     
                     ctx.fillStyle = color;

@@ -76,10 +76,35 @@ class Database:
                 user_id INTEGER,
                 score INTEGER,
                 combo INTEGER,
+                song_id TEXT DEFAULT 'default',
+                accuracy REAL DEFAULT 0,
+                hit_count INTEGER DEFAULT 0,
+                miss_count INTEGER DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES players (user_id)
             )
         ''')
+        
+        # ЭТАП 7: Добавить новые колонки если их нет (для существующих БД)
+        try:
+            cursor.execute('ALTER TABLE results ADD COLUMN song_id TEXT DEFAULT "default"')
+        except sqlite3.OperationalError:
+            pass  # Колонка уже существует
+        
+        try:
+            cursor.execute('ALTER TABLE results ADD COLUMN accuracy REAL DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            cursor.execute('ALTER TABLE results ADD COLUMN hit_count INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
+        
+        try:
+            cursor.execute('ALTER TABLE results ADD COLUMN miss_count INTEGER DEFAULT 0')
+        except sqlite3.OperationalError:
+            pass
         
         conn.commit()
         conn.close()
@@ -641,6 +666,241 @@ async def add_new_track(
         "track": track,
         "message": f"Track '{title}' added successfully"
     }
+
+# ============================================================================
+# ЭТАП 6: USER TRACK UPLOAD ENDPOINTS
+# ============================================================================
+
+from fastapi import UploadFile, File, Form
+from pathlib import Path
+import datetime
+
+# Создать папку для user tracks
+USER_TRACKS_DIR = Path("user_tracks")
+USER_TRACKS_DIR.mkdir(exist_ok=True)
+
+@app.post("/api/upload-track")
+async def upload_track(
+    token: str = Form(...),
+    file: UploadFile = File(...),
+    title: str = Form(""),
+    artist: str = Form("")
+):
+    """
+    Загрузить MP3 файл пользователя
+    """
+    try:
+        # Валидация токена
+        user_id = verify_jwt_token(token)
+        if not user_id:
+            return JSONResponse(content={"error": "Invalid token"}, status_code=401)
+        
+        # Валидация файла
+        if file.content_type not in ["audio/mpeg", "audio/mp3"]:
+            return JSONResponse(content={"error": "Only MP3 files allowed"}, status_code=400)
+        
+        # Проверка размера файла (50MB max)
+        file_content = await file.read()
+        if len(file_content) > 50 * 1024 * 1024:
+            return JSONResponse(content={"error": "File too large (max 50MB)"}, status_code=400)
+        
+        # Сохранить файл
+        filename = f"{user_id}_{file.filename}"
+        filepath = USER_TRACKS_DIR / filename
+        
+        with open(filepath, "wb") as f:
+            f.write(file_content)
+        
+        # Сохранить метаданные в JSON
+        track_data = {
+            "id": f"user_{user_id}_{filename}",
+            "title": title or file.filename.replace('.mp3', ''),
+            "artist": artist or "Unknown Artist",
+            "filename": filename,
+            "filepath": str(filepath),
+            "bpm": 140,  # Default BPM, можно позволить пользователю задать
+            "duration": 180,  # Получить из файла позже
+            "isUserTrack": True,
+            "uploadedBy": user_id,
+            "uploadedAt": datetime.datetime.now().isoformat()
+        }
+        
+        # Сохранить в database или файл
+        user_tracks_file = USER_TRACKS_DIR / f"{user_id}_tracks.json"
+        tracks = []
+        if user_tracks_file.exists():
+            with open(user_tracks_file, 'r', encoding='utf-8') as f:
+                tracks = json.load(f)
+        
+        tracks.append(track_data)
+        
+        with open(user_tracks_file, 'w', encoding='utf-8') as f:
+            json.dump(tracks, f, ensure_ascii=False, indent=2)
+        
+        return JSONResponse(content={
+            "success": True,
+            "track": track_data
+        })
+    
+    except Exception as e:
+        logger.error(f"Error uploading track: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@app.get("/api/user-tracks")
+async def get_user_tracks(token: str):
+    """
+    Получить список всех песен пользователя
+    """
+    try:
+        user_id = verify_jwt_token(token)
+        if not user_id:
+            return JSONResponse(content={"error": "Invalid token"}, status_code=401)
+        
+        user_tracks_file = USER_TRACKS_DIR / f"{user_id}_tracks.json"
+        
+        if not user_tracks_file.exists():
+            return JSONResponse(content={"tracks": []})
+        
+        with open(user_tracks_file, 'r', encoding='utf-8') as f:
+            tracks = json.load(f)
+        
+        return JSONResponse(content={"tracks": tracks})
+    
+    except Exception as e:
+        logger.error(f"Error getting user tracks: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@app.get("/api/track-file/{filename}")
+async def get_track_file(filename: str):
+    """
+    Получить файл песни для проигрывания
+    """
+    try:
+        filepath = USER_TRACKS_DIR / filename
+        
+        if not filepath.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        return FileResponse(
+            filepath,
+            media_type="audio/mpeg",
+            headers={
+                "Accept-Ranges": "bytes",
+                "Cache-Control": "public, max-age=3600"
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"Error serving track file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ============================================================================
+# ЭТАП 7: PERSONAL BEST ENDPOINTS
+# ============================================================================
+
+@app.get("/api/personal-best")
+async def get_personal_best(token: str, songId: str):
+    """
+    Получить личный рекорд для песни
+    """
+    try:
+        user_id = verify_jwt_token(token)
+        if not user_id:
+            return JSONResponse(content={"error": "Invalid token"}, status_code=401)
+        
+        # Получить из database
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT score, accuracy, combo, hit_count, miss_count
+            FROM results
+            WHERE user_id = ? AND song_id = ?
+            ORDER BY score DESC
+            LIMIT 1
+        ''', (user_id, songId))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return JSONResponse(content={
+                "personalBest": {
+                    "score": result[0],
+                    "accuracy": result[1],
+                    "combo": result[2],
+                    "hitCount": result[3],
+                    "missCount": result[4]
+                }
+            })
+        else:
+            return JSONResponse(content={"personalBest": None})
+    
+    except Exception as e:
+        logger.error(f"Error getting personal best: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@app.post("/api/save-score")
+async def save_score(request: Request):
+    """
+    Сохранить результат игры
+    """
+    try:
+        data = await request.json()
+        token = data.get('token')
+        user_id = verify_jwt_token(token)
+        
+        if not user_id:
+            return JSONResponse(content={"error": "Invalid token"}, status_code=401)
+        
+        song_id = data.get('songId', 'default')
+        score = data.get('score', 0)
+        accuracy = data.get('accuracy', 0)
+        combo = data.get('combo', 0)
+        hit_count = data.get('hitCount', 0)
+        miss_count = data.get('missCount', 0)
+        
+        # Получить текущий рекорд
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT score FROM results
+            WHERE user_id = ? AND song_id = ?
+            ORDER BY score DESC
+            LIMIT 1
+        ''', (user_id, song_id))
+        
+        current_best = cursor.fetchone()
+        is_new_pb = not current_best or score > current_best[0]
+        
+        # Сохранить результат
+        cursor.execute('''
+            INSERT INTO results (user_id, score, combo, song_id, accuracy, hit_count, miss_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, score, combo, song_id, accuracy, hit_count, miss_count))
+        
+        # Обновить best_score если это новый рекорд
+        if is_new_pb:
+            cursor.execute('''
+                UPDATE players SET best_score = ?
+                WHERE user_id = ? AND (best_score < ? OR best_score IS NULL)
+            ''', (score, user_id, score))
+        
+        conn.commit()
+        conn.close()
+        
+        return JSONResponse(content={
+            "success": True,
+            "isNewPersonalBest": is_new_pb
+        })
+    
+    except Exception as e:
+        logger.error(f"Error saving score: {e}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.get("/health")
 async def health_check() -> JSONResponse:
