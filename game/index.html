@@ -26,7 +26,12 @@
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #0a0a0f 0%, #1a0a2e 100%);
             color: #ffffff;
+            margin: 0;
+            padding: 0;
             overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            position: fixed; /* Prevent scrolling */
             touch-action: none;
             -webkit-user-select: none;
             user-select: none;
@@ -34,16 +39,20 @@
 
         /* Telegram safe area */
         #app {
-            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+            padding: 0;
             width: 100vw;
             height: 100vh;
             position: relative;
+            overflow: hidden;
         }
 
         #gameCanvas {
             display: block;
             width: 100%;
             height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
             image-rendering: -webkit-optimize-contrast;
             image-rendering: crisp-edges;
             image-rendering: pixelated;
@@ -77,10 +86,18 @@
             background: rgba(10, 10, 15, 0.95);
             z-index: 100;
             padding: 20px;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
         }
 
         .screen.active {
             display: flex;
+            opacity: 1;
+        }
+
+        .screen.hidden {
+            display: none;
+            opacity: 0;
         }
 
         .screen h1 {
@@ -331,6 +348,71 @@
             50% { opacity: 0.5; }
         }
 
+        /* TASK 1: Hit Effect Animations */
+        @keyframes hitEffectPerfect {
+            0% { 
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(0.5);
+            }
+            50% {
+                opacity: 1;
+            }
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1.5);
+            }
+        }
+
+        @keyframes hitEffectGood {
+            0% { 
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(0.6);
+            }
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1.3);
+            }
+        }
+
+        @keyframes hitEffectBad {
+            0% { 
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(0.5) rotate(0deg);
+            }
+            100% {
+                opacity: 0;
+                transform: translate(-50%, -50%) scale(1) rotate(5deg);
+            }
+        }
+
+        .hit-effect {
+            position: absolute;
+            font-weight: bold;
+            font-size: 3em;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(255,255,255,0.8);
+            z-index: 200;
+        }
+
+        .hit-effect.perfect {
+            color: #00ff00;
+            animation: hitEffectPerfect 0.6s ease-out forwards;
+            font-size: 4em;
+        }
+
+        .hit-effect.good {
+            color: #ffff00;
+            animation: hitEffectGood 0.5s ease-out forwards;
+        }
+
+        .hit-effect.bad {
+            color: #ff6666;
+            animation: hitEffectBad 0.4s ease-out forwards;
+        }
+
         /* TASK 3: Loading Overlay */
         .loading-overlay {
             position: absolute;
@@ -493,6 +575,8 @@
 </head>
   <body>
     <div id="app">
+        <!-- Контейнер для визуальных эффектов -->
+        <div id="hitEffectsContainer" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; width: 100%; height: 100%; max-width: 800px; z-index: 150;"></div>
         <canvas id="gameCanvas"></canvas>
         <div id="fpsCounter"></div>
 
@@ -562,6 +646,20 @@
                 <button class="difficulty-btn" data-difficulty="hard">Hard</button>
                 <button class="difficulty-btn" data-difficulty="extreme">Extreme</button>
             </div>
+            
+            <!-- Track Selector -->
+            <div style="margin: 20px 0; max-width: 600px;">
+                <label for="trackSelector" style="color: #00ffff; font-weight: bold; display: block; margin-bottom: 10px;">
+                    Select Track:
+                </label>
+                <select id="trackSelector" class="button" style="width: 100%; padding: 15px; cursor: pointer;">
+                    <option value="1">Loading tracks...</option>
+                </select>
+            </div>
+
+            <!-- Track Info Display -->
+            <div id="trackInfo"></div>
+
             <button class="button" id="startButton">START GAME</button>
             <button class="button" id="recalibrateButton">Recalibrate Audio</button>
         </div>
@@ -648,9 +746,9 @@
             FPS: 60,
             FRAME_TIME: 1000 / 60,
 
-            // Canvas
-            CANVAS_WIDTH: 800,
-            CANVAS_HEIGHT: 1200,
+            // Canvas (will be set dynamically in setupCanvas)
+            CANVAS_WIDTH: window.innerWidth || 800,
+            CANVAS_HEIGHT: window.innerHeight || 1200,
 
             // Lanes
             LANES: 3,
@@ -662,18 +760,35 @@
             HIT_ZONE_Y: 1050,
             HIT_ZONE_HEIGHT: 100,
 
+            // Beatmap system
+            BEATMAP: {
+                LOOK_AHEAD_TIME: 2.0,           // За сколько секунд спавнится нота
+                BPM: 140,                       // BPM трека (потом сделать динамическим)
+                TRACK_DURATION: 120,            // Длительность трека в секундах
+                NOTES_PER_BEAT: 1,              // Количество нот на один бит (обычно 1)
+                START_OFFSET: 2.0               // Когда начинать спавнить ноты
+            },
+
+            // Combo множители (очень важно для азарта!)
+            COMBO_MULTIPLIERS: {
+                0: 1.0,    // 0-4 combo
+                5: 1.5,    // 5-14 combo
+                15: 2.0,   // 15-29 combo
+                30: 2.5    // 30+ combo
+            },
+
             // Timing windows (ms)
             TIMING: {
-                PERFECT: 50,
-                GOOD: 100,
-                OK: 150
+                PERFECT: 50,   // ±50ms
+                GOOD: 100,     // ±100ms
+                BAD: 150       // ±150ms
             },
 
             // Scoring
             SCORE: {
                 PERFECT: 100,
                 GOOD: 50,
-                OK: 25,
+                BAD: 25,
                 MISS: 0
             },
 
@@ -683,7 +798,7 @@
             HP_GAIN: {
                 PERFECT: 2,
                 GOOD: 1,
-                OK: 0.5,
+                BAD: 0.5,
                 MISS: -10
             },
 
@@ -698,8 +813,15 @@
                 NOTE_GLOW: 'rgba(0, 255, 255, 0.5)',
                 PERFECT: '#00ff00',
                 GOOD: '#ffff00',
-                OK: '#ff9900',
+                BAD: '#ff9900',
                 MISS: '#ff0000'
+            },
+
+            // Music settings
+            MUSIC: {
+                DEFAULT_TRACK_ID: 1,
+                PRELOAD_TRACKS: true,
+                AUDIO_FORMAT: 'mp3'
             }
         };
 
@@ -905,7 +1027,7 @@
             // Stats
             perfectHits: 0,
             goodHits: 0,
-            okHits: 0,
+            badHits: 0,
             missedHits: 0,
             totalNotes: 0,
 
@@ -918,6 +1040,28 @@
             // Notes
             notes: [],
             nextNoteTime: 0,
+
+            // Beatmap система
+            beatmap: [],              // Массив биток
+            currentBeatIndex: 0,      // Индекс текущего бита для спавна
+
+            // UI feedback для попаданий
+            lastHitResult: null,      // 'PERFECT', 'GOOD', 'BAD', 'MISS'
+            lastHitTime: 0,           // Когда было последнее попадание
+
+            // Для отладки
+            beatmapInfo: {
+                bpm: 140,
+                trackDuration: 120,
+                totalNotes: 0
+            },
+
+            // Music
+            currentTrack: null,
+            availableTracks: [],
+            selectedTrackId: 1,
+            audioElement: null,
+            audioLoaded: false,
 
             // Particles
             particles: [],
@@ -1026,6 +1170,86 @@
         }
 
         // ============================================
+        // SOUND MANAGER
+        // ============================================
+        class SoundManager {
+            constructor() {
+                // Используем Web Audio API для создания простых звуков
+                try {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                } catch (e) {
+                    console.error('Web Audio API not supported:', e);
+                    this.audioContext = null;
+                }
+            }
+
+            playTone(frequency, duration, type = 'perfect') {
+                if (!this.audioContext) return;
+                
+                const ctx = this.audioContext;
+                const now = ctx.currentTime;
+                
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                
+                // Разные звуки для разных результатов
+                const tones = {
+                    perfect: { freq: 880, dur: 0.2 },  // высокий бип
+                    good: { freq: 660, dur: 0.15 },    // средний бип
+                    bad: { freq: 440, dur: 0.1 },      // низкий бип
+                    miss: { freq: 220, dur: 0.05 }     // очень низкий
+                };
+                
+                const tone = tones[type] || tones.good;
+                
+                osc.frequency.value = tone.freq;
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + tone.dur);
+                
+                osc.start(now);
+                osc.stop(now + tone.dur);
+            }
+        }
+
+        // ============================================
+        // HIT EFFECT MANAGER
+        // ============================================
+        class HitEffectManager {
+            constructor(container) {
+                this.container = container;
+            }
+
+            showEffect(quality, xPos = null, yPos = null) {
+                const effect = document.createElement('div');
+                effect.className = `hit-effect ${quality.toLowerCase()}`;
+                
+                const texts = {
+                    PERFECT: '🎯 PERFECT!',
+                    GOOD: '✓ GOOD',
+                    BAD: '! BAD',
+                    MISS: '✗ MISS'
+                };
+                
+                effect.textContent = texts[quality] || quality;
+                
+                // Если есть позиция, используем её, иначе центр
+                if (xPos !== null && yPos !== null) {
+                    effect.style.left = xPos + 'px';
+                    effect.style.top = yPos + 'px';
+                    effect.style.transform = 'translate(-50%, -50%)';
+                }
+                
+                this.container.appendChild(effect);
+                
+                // Удалить элемент после анимации
+                setTimeout(() => effect.remove(), 600);
+            }
+        }
+
+        // ============================================
         // GAME CLASS
         // ============================================
         class Game {
@@ -1055,29 +1279,84 @@
                 // Mobile
                 this.pauseTime = null;
 
+                // TASK 6: Screen shake
+                this.shakeIntensity = 0;
+                this.shakeDuration = 0;
+                this.shakeStart = null;
+
+                // Инициализировать HitEffectManager
+                const effectsContainer = document.getElementById('hitEffectsContainer');
+                this.hitEffectManager = new HitEffectManager(effectsContainer);
+
+                // TASK 5: Инициализировать SoundManager
+                this.soundManager = new SoundManager();
+
                 this.init();
             }
 
-            init() {
+            async init() {
                 this.setupCanvas();
                 this.setupEventListeners();
                 this.initAudio();
+                
+                // Load available tracks
+                await this.loadAvailableTracks();
+                
+                // Load default track
+                if (gameState.availableTracks.length > 0) {
+                    await this.loadTrack(gameState.availableTracks[0].id);
+                }
+                
                 this.startCalibration();
             }
 
             setupCanvas() {
+                // Get actual screen size
+                const screenWidth = window.innerWidth;
+                const screenHeight = window.innerHeight;
+                
+                // Set canvas to full screen
+                this.canvas.style.width = '100%';
+                this.canvas.style.height = '100%';
+                
+                // Use appropriate resolution for mobile
+                const dpr = window.devicePixelRatio || 1;
+                
+                // Canvas internal resolution (limit max width for performance)
+                const maxWidth = 800;
+                const canvasWidth = Math.min(maxWidth, screenWidth * dpr);
+                const canvasHeight = screenHeight * dpr;
+                
+                this.canvas.width = canvasWidth;
+                this.canvas.height = canvasHeight;
+                
+                // Update CONFIG dynamically
+                CONFIG.CANVAS_WIDTH = canvasWidth;
+                CONFIG.CANVAS_HEIGHT = canvasHeight;
+                
+                // Recalculate HIT ZONE position (should be at 85-90% of screen height)
+                CONFIG.HIT_ZONE_Y = CONFIG.CANVAS_HEIGHT * 0.87;
+                
+                // Scale factors for touch input
                 const rect = this.canvas.getBoundingClientRect();
-
-                this.canvas.width = CONFIG.CANVAS_WIDTH;
-                this.canvas.height = CONFIG.CANVAS_HEIGHT;
-
-                this.scaleX = CONFIG.CANVAS_WIDTH / rect.width;
-                this.scaleY = CONFIG.CANVAS_HEIGHT / rect.height;
+                this.scaleX = this.canvas.width / rect.width;
+                this.scaleY = this.canvas.height / rect.height;
+                
+                console.log(`Canvas resized: ${canvasWidth}x${canvasHeight}, HIT_ZONE_Y: ${CONFIG.HIT_ZONE_Y}`);
             }
 
             setupEventListeners() {
                 // Window resize
-                window.addEventListener('resize', () => this.setupCanvas());
+                window.addEventListener('resize', () => {
+                    this.setupCanvas();
+                });
+                
+                // Orientation change (mobile)
+                window.addEventListener('orientationchange', () => {
+                    setTimeout(() => {
+                        this.setupCanvas();
+                    }, 100);
+                });
 
                 // Mobile: prevent zoom
                 document.addEventListener('touchmove', (e) => {
@@ -1112,6 +1391,25 @@
                 document.getElementById('tapZone').addEventListener('click', () => this.handleCalibrationTap());
                 document.getElementById('testSoundButton').addEventListener('click', () => this.testSound());
                 document.getElementById('startGameButton').addEventListener('click', () => this.startGameFromSettings());
+
+                // Track selector
+                const trackSelector = document.getElementById('trackSelector');
+                if (trackSelector) {
+                    trackSelector.addEventListener('change', async (e) => {
+                        const trackId = parseInt(e.target.value);
+                        const loadingText = trackSelector.options[trackSelector.selectedIndex].text;
+                        trackSelector.options[trackSelector.selectedIndex].text = 'Loading...';
+                        
+                        const success = await this.loadTrack(trackId);
+                        
+                        if (!success) {
+                            alert('Failed to load track. Please try another one.');
+                            trackSelector.value = gameState.selectedTrackId;
+                        }
+                        
+                        trackSelector.options[trackSelector.selectedIndex].text = loadingText;
+                    });
+                }
 
                 // Calibration sliders
                 const latencySlider = document.getElementById('latencySlider');
@@ -1202,9 +1500,12 @@
                 gameState.calibrationTaps = [];
                 gameState.calibrationBeats = [];
 
-                // Generate calibration beats (simple 1 second intervals)
-                for (let i = 1; i <= 10; i++) {
-                    gameState.calibrationBeats.push(i * 1000);
+                // PATCH #5: Fix Calibration BPM - use track BPM
+                const trackBPM = gameState.currentTrack?.bpm || CONFIG.BEATMAP.BPM || 140;
+                const beatInterval = (60 / trackBPM) * 1000;
+                
+                for (let i = 1; i <= 12; i++) {
+                    gameState.calibrationBeats.push(i * beatInterval);
                 }
 
                 this.startCalibrationBeats();
@@ -1322,8 +1623,12 @@
             // SCREEN MANAGEMENT
             // ============================================
             showScreen(screenName) {
+                // TASK 4: Плавный переход между экранами
                 document.querySelectorAll('.screen').forEach(screen => {
-                    screen.classList.remove('active');
+                    if (screen.classList.contains('active')) {
+                        screen.classList.remove('active');
+                        screen.classList.add('hidden');
+                    }
                 });
 
                 const screens = {
@@ -1334,7 +1639,14 @@
                 };
 
                 if (screens[screenName]) {
-                    document.getElementById(screens[screenName]).classList.add('active');
+                    const targetScreen = document.getElementById(screens[screenName]);
+                    if (targetScreen) {
+                        targetScreen.classList.remove('hidden');
+                        // Небольшая задержка для плавного появления
+                        setTimeout(() => {
+                            targetScreen.classList.add('active');
+                        }, 10);
+                    }
                 }
 
                 gameState.currentScreen = screenName;
@@ -1357,13 +1669,38 @@
                 gameState.hp = CONFIG.MAX_HP;
                 gameState.perfectHits = 0;
                 gameState.goodHits = 0;
-                gameState.okHits = 0;
+                gameState.badHits = 0;
                 gameState.missedHits = 0;
                 gameState.totalNotes = 0;
                 gameState.gameTime = 0;
                 gameState.gameStartTime = performance.now();
-                gameState.nextNoteTime = 1000;
                 gameState.particles = [];
+                gameState.lastHitResult = null;
+                gameState.lastHitTime = 0;
+
+                // Load track if not loaded
+                if (!gameState.currentTrack) {
+                    console.warn('No track loaded, using default');
+                    CONFIG.BEATMAP.BPM = 140;
+                } else {
+                    // Use track's BPM
+                    CONFIG.BEATMAP.BPM = gameState.currentTrack.bpm;
+                    CONFIG.BEATMAP.TRACK_DURATION = gameState.currentTrack.duration;
+                }
+
+                // НОВОЕ: Генерируем beatmap один раз в начале игры
+                const bpm = CONFIG.BEATMAP.BPM;
+                const duration = CONFIG.BEATMAP.TRACK_DURATION;
+                
+                gameState.beatmap = this.generateBeatmap(bpm, duration);
+                gameState.currentBeatIndex = 0;
+                gameState.beatmapInfo = {
+                    bpm: bpm,
+                    trackDuration: duration,
+                    totalNotes: gameState.beatmap.length
+                };
+                
+                console.log(`Beatmap loaded: ${gameState.beatmap.length} notes at ${bpm} BPM`);
 
                 // Clear notes
                 this.notePool.releaseAll();
@@ -1377,6 +1714,9 @@
                     this.audioContext.resume();
                 }
 
+                // Start music
+                this.playMusic();
+
                 // Track game start
                 this.trackGameStart();
 
@@ -1389,6 +1729,7 @@
                 if (!gameState.isPlaying || gameState.isPaused) return;
 
                 gameState.isPaused = true;
+                this.pauseMusic();
                 this.showScreen('pause');
 
                 this.trackPause();
@@ -1403,6 +1744,7 @@
                 if (!gameState.isPlaying || !gameState.isPaused) return;
 
                 gameState.isPaused = false;
+                this.playMusic();
                 this.showScreen(null);
 
                 gameState.lastFrameTime = performance.now();
@@ -1425,6 +1767,7 @@
                 this.notePool.releaseAll();
                 gameState.notes = [];
 
+                this.stopMusic();
                 this.showMenu();
             }
 
@@ -1438,7 +1781,7 @@
 
                 // Update stats
                 const accuracy = gameState.totalNotes > 0
-                    ? ((gameState.perfectHits + gameState.goodHits) / gameState.totalNotes * 100).toFixed(1)
+                    ? ((gameState.perfectHits + gameState.goodHits + gameState.badHits) / gameState.totalNotes * 100).toFixed(1)
                     : '0.0';
 
                 document.getElementById('finalScore').textContent = gameState.score;
@@ -1454,6 +1797,7 @@
                     combo: gameState.maxCombo,
                     perfect: gameState.perfectHits,
                     good: gameState.goodHits,
+                    bad: gameState.badHits,
                     miss: gameState.missedHits
                 };
 
@@ -1690,97 +2034,111 @@
             }
 
             handleLaneInput(lane) {
-                // Find closest note in this lane within hit window
-                const diff = DIFFICULTY[gameState.difficulty];
-                const hitWindow = diff.hitWindow || 100;
-
+                // PATCH #4: Apply latency correctly
+                const clickTime = gameState.gameTime; // БЕЗ latency
+                
+                // Находим ближайшую ноту в этой дорожке
                 let closestNote = null;
-                let closestDist = Infinity;
-
+                let closestTimeDiff = Infinity;
+                
                 for (const note of gameState.notes) {
-                    if (note.lane === lane && !note.hit && !note.missed) {
-                        const dist = Math.abs(note.y - CONFIG.HIT_ZONE_Y);
-                        if (dist < hitWindow && dist < closestDist) {
-                            closestNote = note;
-                            closestDist = dist;
-                        }
+                    if (note.lane !== lane || note.hit || note.missed) continue;
+                    
+                    // Apply latency to target time, not click time
+                    const adjustedTargetTime = note.targetTime + gameState.audioLatency / 1000;
+                    const timeDiff = Math.abs(clickTime - adjustedTargetTime);
+                    
+                    // Ищем только ноты в окне попадания (150ms)
+                    if (timeDiff < CONFIG.TIMING.BAD / 1000 && timeDiff < closestTimeDiff) {
+                        closestNote = note;
+                        closestTimeDiff = timeDiff;
                     }
                 }
-
-                if (closestNote) {
-                    this.hitNote(closestNote, closestDist);
+                
+                // Если нот не нашли - просто вибрируем но ничего не считаем
+                if (!closestNote) {
+                    if (navigator.vibrate) navigator.vibrate(10);
+                    return;
                 }
-            }
-
-            hitNote(note, distance) {
-                note.hit = true;
-
-                // Determine hit quality
-                let quality = 'OK';
-                let score = CONFIG.SCORE.OK;
-                let hpGain = CONFIG.HP_GAIN.OK;
-                let color = CONFIG.COLORS.OK;
-                let frequency = 500;
-                let vibrationPattern = [20];
-
-                if (distance <= CONFIG.TIMING.PERFECT) {
+                
+                // ОПРЕДЕЛЯЕМ КАЧЕСТВО ПОПАДАНИЯ
+                let quality, baseScore, hpGain, color, frequency, vibrationPattern;
+                const timeDiffMs = closestTimeDiff * 1000; // Конвертируем в миллисекунды
+                
+                if (timeDiffMs <= CONFIG.TIMING.PERFECT) {
                     quality = 'PERFECT';
-                    score = CONFIG.SCORE.PERFECT;
+                    baseScore = CONFIG.SCORE.PERFECT;
                     hpGain = CONFIG.HP_GAIN.PERFECT;
-                    gameState.perfectHits++;
                     color = CONFIG.COLORS.PERFECT;
                     frequency = 800;
                     vibrationPattern = [80];
-                } else if (distance <= CONFIG.TIMING.GOOD) {
+                    gameState.perfectHits++;
+                    
+                } else if (timeDiffMs <= CONFIG.TIMING.GOOD) {
                     quality = 'GOOD';
-                    score = CONFIG.SCORE.GOOD;
+                    baseScore = CONFIG.SCORE.GOOD;
                     hpGain = CONFIG.HP_GAIN.GOOD;
-                    gameState.goodHits++;
                     color = CONFIG.COLORS.GOOD;
                     frequency = 700;
                     vibrationPattern = [50];
+                    gameState.goodHits++;
+                    
                 } else {
-                    gameState.okHits++;
-                    color = CONFIG.COLORS.OK;
+                    quality = 'BAD';
+                    baseScore = CONFIG.SCORE.BAD;
+                    hpGain = CONFIG.HP_GAIN.BAD;
+                    color = CONFIG.COLORS.BAD;
                     frequency = 600;
                     vibrationPattern = [20];
+                    gameState.badHits++;
                 }
-
-                // Update game state
+                
+                // ПРИМЕНИТЬ COMBO МНОЖИТЕЛЬ
+                let multiplier = 1.0;
+                if (gameState.combo >= 30) multiplier = 2.5;
+                else if (gameState.combo >= 15) multiplier = 2.0;
+                else if (gameState.combo >= 5) multiplier = 1.5;
+                
+                const finalScore = Math.floor(baseScore * multiplier);
+                
+                // ОБНОВИТЬ СОСТОЯНИЕ ИГРЫ
+                closestNote.hit = true;
                 gameState.combo++;
                 gameState.maxCombo = Math.max(gameState.maxCombo, gameState.combo);
-                gameState.score += score * (1 + gameState.combo * 0.1);
+                gameState.score += finalScore;
                 gameState.hp = Math.min(CONFIG.MAX_HP, gameState.hp + hpGain);
-
-                // Create particles
+                
+                // UI Feedback
+                gameState.lastHitResult = quality;
+                gameState.lastHitTime = gameState.gameTime;
+                
+                // TASK 1: Показать визуальный feedback
                 const centerX = CONFIG.CANVAS_WIDTH / 2;
                 const totalWidth = CONFIG.LANES * CONFIG.LANE_WIDTH;
                 const startX = centerX - totalWidth / 2;
-                const noteX = startX + note.lane * CONFIG.LANE_WIDTH + CONFIG.LANE_WIDTH / 2;
-
-                for (let i = 0; i < 8; i++) {
-                    const angle = (Math.PI * 2 * i) / 8;
-                    const speed = 3 + Math.random() * 3;
-                    const vx = Math.cos(angle) * speed;
-                    const vy = Math.sin(angle) * speed;
-                    const particle = new Particle(noteX, CONFIG.HIT_ZONE_Y, color, vx, vy, 400);
-                    gameState.particles.push(particle);
-                }
-
-                // Audio feedback
-                this.playBeep(frequency, 0.05);
-
+                const noteX = startX + closestNote.lane * CONFIG.LANE_WIDTH + CONFIG.LANE_WIDTH / 2;
+                const noteY = CONFIG.HIT_ZONE_Y;
+                this.hitEffectManager.showEffect(quality, noteX, noteY);
+                
+                // TASK 5: Audio feedback через SoundManager
+                const soundType = quality === 'PERFECT' ? 'perfect' : quality === 'GOOD' ? 'good' : 'bad';
+                this.soundManager.playTone(frequency, 0.05, soundType);
+                
                 // Vibration feedback
                 if (navigator.vibrate) {
                     navigator.vibrate(vibrationPattern);
                 }
-
-                // Analytics
+                
+                // PARTICLES
+                this.spawnHitParticles(closestNote.lane, color);
+                
+                // ANALYTICS
                 this.logAnalytics({
                     event: 'hit_note',
                     quality: quality,
                     combo: gameState.combo,
-                    distance: distance.toFixed(2)
+                    score: finalScore,
+                    timingDiff: closestTimeDiff.toFixed(3)
                 });
             }
 
@@ -1805,7 +2163,23 @@
             }
 
             update(deltaTime) {
-                gameState.gameTime += deltaTime;
+                // Convert deltaTime from ms to seconds
+                const deltaSeconds = deltaTime / 1000;
+                
+                // PATCH #1: Sync game time with audio.currentTime to prevent drift
+                if (gameState.audioElement && gameState.audioLoaded && !gameState.audioElement.paused) {
+                    const audioTime = gameState.audioElement.currentTime;
+                    const drift = Math.abs(audioTime - gameState.gameTime);
+                    
+                    // If drift is significant (>50ms), sync to audio
+                    if (drift > 0.05) {
+                        gameState.gameTime = audioTime;
+                    } else {
+                        gameState.gameTime += deltaSeconds;
+                    }
+                } else {
+                    gameState.gameTime += deltaSeconds;
+                }
 
                 // Get difficulty settings
                 const diff = DIFFICULTY[gameState.difficulty];
@@ -1820,42 +2194,82 @@
                     }
                 }
 
-                // Spawn notes
-                if (gameState.gameTime >= gameState.nextNoteTime) {
-                    this.spawnNote();
-                    gameState.nextNoteTime = gameState.gameTime + (1000 + Math.random() * 500) * diff.spawnRate;
+                // Спавн нот по beatmap с 2-секундным look-ahead
+                while (gameState.currentBeatIndex < gameState.beatmap.length) {
+                    const beat = gameState.beatmap[gameState.currentBeatIndex];
+                    
+                    // Нота должна спавниться за LOOK_AHEAD_TIME секунд до beat.time
+                    const shouldSpawnAt = beat.time - CONFIG.BEATMAP.LOOK_AHEAD_TIME;
+                    
+                    if (gameState.gameTime >= shouldSpawnAt && !beat.spawned) {
+                        // Время спавнить эту ноту
+                        this.spawnNoteFromBeatmap(beat);
+                        beat.spawned = true;
+                        gameState.currentBeatIndex++;
+                    } else if (gameState.gameTime < shouldSpawnAt) {
+                        // Еще рано - выходим из цикла
+                        break;
+                    } else {
+                        // Уже пропущена - переходим к следующей
+                        gameState.currentBeatIndex++;
+                    }
                 }
 
-                // Update notes
-                const speed = CONFIG.NOTE_SPEED * diff.speed;
+                // НОВАЯ логика движения нот
                 for (let i = gameState.notes.length - 1; i >= 0; i--) {
                     const note = gameState.notes[i];
-
+                    
                     if (note.hit) {
                         gameState.notes.splice(i, 1);
                         this.notePool.release(note);
                         continue;
                     }
-
-                    note.y += speed;
-
-                    // Check if missed
-                    if (note.y > CONFIG.HIT_ZONE_Y + CONFIG.HIT_ZONE_HEIGHT && !note.missed) {
+                    
+                    // HIT_ZONE - 2-second interpolation
+                    // Используем spawnTime вместо несуществующего targetTime для расчета
+                    const elapsed = gameState.gameTime - note.spawnTime;
+                    const progress = Math.min(1.0, elapsed / CONFIG.BEATMAP.LOOK_AHEAD_TIME);
+                    
+                    // Интерполяция от верха экрана до HIT_ZONE
+                    const startY = -CONFIG.NOTE_RADIUS * 2;
+                    const endY = CONFIG.HIT_ZONE_Y;
+                    note.y = startY + (progress * (endY - startY));
+                    
+                    // PATCH #3: Remove missed notes
+                    if (gameState.gameTime > note.targetTime + 0.15 && !note.missed) {
                         note.missed = true;
                         gameState.combo = 0;
                         gameState.missedHits++;
-                        gameState.hp = Math.max(0, gameState.hp + CONFIG.HP_GAIN.MISS * diff.hpDrain);
+                        gameState.hp = Math.max(0, gameState.hp + CONFIG.HP_GAIN.MISS);
+                        
+                        // TASK 5: Звук для miss
+                        this.soundManager.playTone(220, 0.05, 'miss');
+                        
+                        // TASK 6: Screen shake при miss
+                        this.applyScreenShake(3, 0.15);
+                        
+                        // Analytics
+                        this.logAnalytics({
+                            event: 'miss_note',
+                            lane: note.lane,
+                            targetTime: note.targetTime.toFixed(2)
+                        });
+                        
+                        // Remove missed note immediately
+                        gameState.notes.splice(i, 1);
+                        this.notePool.release(note);
+                        continue;
                     }
-
-                    // Remove off-screen notes
+                    
+                    // Remove note if it's off screen
                     if (note.y > CONFIG.CANVAS_HEIGHT + 100) {
                         gameState.notes.splice(i, 1);
                         this.notePool.release(note);
                     }
                 }
 
-                // HP drain
-                gameState.hp = Math.max(0, gameState.hp - CONFIG.HP_DRAIN_RATE * diff.hpDrain);
+                // HP drain (меньше чем было)
+                gameState.hp = Math.max(0, gameState.hp - CONFIG.HP_DRAIN_RATE * deltaSeconds * 0.1);
 
                 // Check game over
                 if (gameState.hp <= 0) {
@@ -1874,6 +2288,77 @@
                 }
             }
 
+            // ============================================
+            // BEATMAP SYSTEM
+            // ============================================
+            generateBeatmap(bpm = CONFIG.BEATMAP.BPM, duration = CONFIG.BEATMAP.TRACK_DURATION) {
+                const beatmap = [];
+                const beatInterval = 60 / bpm;  // Интервал между битами в секундах
+                
+                // Генерируем ноты на каждый бит
+                const startTime = CONFIG.BEATMAP.START_OFFSET;
+                
+                for (let time = startTime; time < duration - 1; time += beatInterval) {
+                    // Случайная дорожка (0-2, так как 3 дорожки)
+                    const lane = Math.floor(Math.random() * CONFIG.LANES);
+                    
+                    beatmap.push({
+                        time: time,                    // Время когда нужно кликнуть (в секундах)
+                        lane: lane,                    // Дорожка (0-2)
+                        spawned: false,                // Флаг что нота уже спавнена
+                        hit: false,                    // Флаг что нота была кликнута
+                        missed: false                  // Флаг что нота была пропущена
+                    });
+                }
+                
+                return beatmap;
+            }
+
+            spawnNoteFromBeatmap(beatData) {
+                const lane = beatData.lane;
+                const targetTime = beatData.time;
+                
+                // Y position - start above screen
+                const spawnY = -CONFIG.NOTE_RADIUS * 2;
+                
+                // Create note with time = 0 (will use spawnTime instead)
+                const note = this.notePool.get(lane, spawnY, 0);
+                
+                // ✅ КРИТИЧНО: установить оба поля времени
+                note.targetTime = targetTime;      // Когда должна быть нажата
+                note.spawnTime = gameState.gameTime; // Когда появилась на экране
+                note.lane = lane;
+                
+                gameState.notes.push(note);
+                gameState.totalNotes++;
+                
+                console.log(`Spawned note: lane=${lane}, target=${targetTime.toFixed(2)}s, spawn=${gameState.gameTime.toFixed(2)}s`);
+            }
+
+            spawnHitParticles(lane, color) {
+                const centerX = CONFIG.CANVAS_WIDTH / 2;
+                const totalWidth = CONFIG.LANES * CONFIG.LANE_WIDTH;
+                const startX = centerX - totalWidth / 2;
+                const noteX = startX + lane * CONFIG.LANE_WIDTH + CONFIG.LANE_WIDTH / 2;
+                
+                for (let i = 0; i < 8; i++) {
+                    const angle = (Math.PI * 2 * i) / 8;
+                    const speed = 3 + Math.random() * 3;
+                    const vx = Math.cos(angle) * speed;
+                    const vy = Math.sin(angle) * speed;
+                    
+                    const particle = new Particle(
+                        noteX,
+                        CONFIG.HIT_ZONE_Y,
+                        color,
+                        vx,
+                        vy,
+                        400
+                    );
+                    gameState.particles.push(particle);
+                }
+            }
+
             spawnNote() {
                 const lane = Math.floor(Math.random() * CONFIG.LANES);
                 const note = this.notePool.get(lane, -CONFIG.NOTE_RADIUS * 2, gameState.gameTime);
@@ -1882,10 +2367,177 @@
             }
 
             // ============================================
+            // MUSIC SYSTEM
+            // ============================================
+            async loadAvailableTracks() {
+                try {
+                    const response = await fetch('/api/tracks');
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        gameState.availableTracks = data.tracks.filter(t => t.available);
+                        console.log(`📀 Loaded ${gameState.availableTracks.length} tracks`);
+                        
+                        // Update track selector UI if exists
+                        this.updateTrackSelector();
+                    }
+                } catch (error) {
+                    console.error('Error loading tracks:', error);
+                    // Fallback to default track
+                    gameState.availableTracks = [{
+                        id: 1,
+                        title: "Default Track",
+                        artist: "Unknown",
+                        bpm: 140,
+                        duration: 120,
+                        available: true
+                    }];
+                }
+            }
+
+            async loadTrack(trackId) {
+                try {
+                    const response = await fetch(`/api/tracks/${trackId}`);
+                    const data = await response.json();
+                    
+                    if (!data.success || !data.track.available) {
+                        throw new Error('Track not available');
+                    }
+                    
+                    gameState.currentTrack = data.track;
+                    gameState.selectedTrackId = trackId;
+                    
+                    // Update CONFIG with track's BPM
+                    CONFIG.BEATMAP.BPM = data.track.bpm;
+                    CONFIG.BEATMAP.TRACK_DURATION = data.track.duration;
+                    
+                    console.log(`🎵 Loaded: ${data.track.title} by ${data.track.artist} (${data.track.bpm} BPM)`);
+                    
+                    // Load audio
+                    await this.loadAudioFile(data.track.url);
+                    
+                    // Update UI
+                    this.updateTrackInfo();
+                    
+                    return true;
+                } catch (error) {
+                    console.error('Error loading track:', error);
+                    return false;
+                }
+            }
+
+            async loadAudioFile(url) {
+                return new Promise((resolve, reject) => {
+                    if (!gameState.audioElement) {
+                        gameState.audioElement = new Audio();
+                        gameState.audioElement.addEventListener('canplaythrough', () => {
+                            gameState.audioLoaded = true;
+                            console.log('✅ Audio loaded and ready');
+                            resolve();
+                        });
+                        gameState.audioElement.addEventListener('error', (e) => {
+                            console.error('❌ Audio loading failed:', e);
+                            reject(e);
+                        });
+                    }
+                    
+                    gameState.audioElement.src = url;
+                    gameState.audioElement.load();
+                });
+            }
+
+            updateTrackSelector() {
+                const selector = document.getElementById('trackSelector');
+                if (!selector) return;
+                
+                selector.innerHTML = '';
+                
+                gameState.availableTracks.forEach(track => {
+                    const option = document.createElement('option');
+                    option.value = track.id;
+                    option.textContent = `${track.title} - ${track.artist} (${track.bpm} BPM)`;
+                    option.selected = track.id === gameState.selectedTrackId;
+                    selector.appendChild(option);
+                });
+            }
+
+            updateTrackInfo() {
+                const trackInfo = document.getElementById('trackInfo');
+                if (trackInfo && gameState.currentTrack) {
+                    trackInfo.innerHTML = `
+                        <div style="text-align: center; margin: 20px 0;">
+                            <div style="font-size: 1.5em; color: #00ffff; font-weight: bold;">
+                                ${gameState.currentTrack.title}
+                            </div>
+                            <div style="font-size: 1.1em; color: #ffffff; margin-top: 5px;">
+                                ${gameState.currentTrack.artist}
+                            </div>
+                            <div style="font-size: 0.9em; color: #00ffff; margin-top: 10px;">
+                                ${gameState.currentTrack.bpm} BPM • ${gameState.currentTrack.duration}s • ${gameState.currentTrack.genre}
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            playMusic() {
+                if (gameState.audioElement && gameState.audioLoaded) {
+                    gameState.audioElement.currentTime = 0;
+                    gameState.audioElement.play().catch(err => {
+                        console.error('Error playing audio:', err);
+                    });
+                }
+            }
+
+            pauseMusic() {
+                if (gameState.audioElement) {
+                    gameState.audioElement.pause();
+                }
+            }
+
+            stopMusic() {
+                if (gameState.audioElement) {
+                    gameState.audioElement.pause();
+                    gameState.audioElement.currentTime = 0;
+                }
+            }
+
+            // ============================================
             // RENDERING
             // ============================================
+            // TASK 6: Screen shake methods
+            applyScreenShake(intensity = 5, duration = 0.2) {
+                this.shakeIntensity = intensity;
+                this.shakeDuration = duration;
+                this.shakeStart = gameState.gameTime;
+            }
+
+            getShakeOffset() {
+                if (!this.shakeStart) return { x: 0, y: 0 };
+                
+                const elapsed = gameState.gameTime - this.shakeStart;
+                if (elapsed > this.shakeDuration) {
+                    this.shakeStart = null;
+                    return { x: 0, y: 0 };
+                }
+                
+                const progress = 1 - (elapsed / this.shakeDuration);
+                const angle = Math.random() * Math.PI * 2;
+                const distance = this.shakeIntensity * progress;
+                
+                return {
+                    x: Math.cos(angle) * distance,
+                    y: Math.sin(angle) * distance
+                };
+            }
+
             render() {
                 const ctx = this.ctx;
+
+                // TASK 6: Применить screen shake
+                const shakeOffset = this.getShakeOffset();
+                ctx.save();
+                ctx.translate(shakeOffset.x, shakeOffset.y);
 
                 // Background
                 const gradient = ctx.createLinearGradient(0, 0, 0, CONFIG.CANVAS_HEIGHT);
@@ -1908,6 +2560,8 @@
 
                 // UI
                 this.renderUI();
+
+                ctx.restore();
             }
 
             renderParticles() {
@@ -1968,59 +2622,133 @@
 
                     const noteX = startX + note.lane * CONFIG.LANE_WIDTH + CONFIG.LANE_WIDTH / 2;
 
-                    // Glow
-                    ctx.shadowBlur = 20;
-                    ctx.shadowColor = CONFIG.COLORS.NOTE_GLOW;
+                    // TASK 2: Pulse эффект (нота мигает когда спаунится)
+                    const timeSinceSpawn = gameState.gameTime - (note.spawnTime || 0);
+                    let pulseAlpha = 1.0;
+                    if (timeSinceSpawn < 0.3) { // Пульс первые 0.3 сек
+                        pulseAlpha = 0.7 + 0.3 * Math.sin(timeSinceSpawn * Math.PI * 10);
+                    }
+                    ctx.globalAlpha = pulseAlpha;
 
-                    // Note
-                    ctx.fillStyle = CONFIG.COLORS.NOTE;
+                    // TASK 2: Создать gradient
+                    const gradient = ctx.createRadialGradient(
+                        noteX, note.y - CONFIG.NOTE_RADIUS * 0.3, 0,
+                        noteX, note.y, CONFIG.NOTE_RADIUS
+                    );
+                    gradient.addColorStop(0, '#00ffff');
+                    gradient.addColorStop(0.5, '#0099ff');
+                    gradient.addColorStop(1, '#0066ff');
+
+                    // TASK 2: Glow эффект
+                    ctx.shadowBlur = 25;
+                    ctx.shadowColor = 'rgba(0, 255, 255, 0.8)';
+
+                    // TASK 2: Основной круг с gradient
+                    ctx.fillStyle = gradient;
                     ctx.beginPath();
                     ctx.arc(noteX, note.y, CONFIG.NOTE_RADIUS, 0, Math.PI * 2);
                     ctx.fill();
 
+                    // TASK 2: Добавить top highlight (3D эффект)
+                    const highlightGradient = ctx.createRadialGradient(
+                        noteX, note.y - CONFIG.NOTE_RADIUS * 0.5, 0,
+                        noteX, note.y, CONFIG.NOTE_RADIUS
+                    );
+                    highlightGradient.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
+                    highlightGradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.1)');
+                    highlightGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                    ctx.fillStyle = highlightGradient;
+                    ctx.beginPath();
+                    ctx.arc(noteX, note.y, CONFIG.NOTE_RADIUS, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // TASK 2: Добавить border glow
+                    ctx.strokeStyle = 'rgba(0, 255, 255, 0.6)';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(noteX, note.y, CONFIG.NOTE_RADIUS, 0, Math.PI * 2);
+                    ctx.stroke();
+
                     ctx.shadowBlur = 0;
+                    ctx.globalAlpha = 1.0;
                 }
             }
 
             renderUI() {
                 const ctx = this.ctx;
 
-                // Score
-                ctx.font = 'bold 40px Arial';
+                // TASK 3: Background для UI (полупрозрачный)
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                ctx.fillRect(10, 10, 250, 100);
+                ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(10, 10, 250, 100);
+
+                // TASK 3: SCORE (большой и яркий)
                 ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 2.5em Arial';
                 ctx.textAlign = 'left';
                 ctx.fillText(`Score: ${Math.floor(gameState.score)}`, 20, 50);
 
-                // Combo
+                // TASK 3: COMBO (желтый, мигает при высоком комбо)
                 if (gameState.combo > 0) {
-                    ctx.font = 'bold 50px Arial';
-                    ctx.fillStyle = '#ffff00';
-                    ctx.textAlign = 'center';
-                    ctx.fillText(`${gameState.combo}x COMBO`, CONFIG.CANVAS_WIDTH / 2, 150);
+                    let comboColor = '#ffff00';
+                    if (gameState.combo > 10) {
+                        const flash = Math.sin(gameState.gameTime * 8) > 0 ? '#ffff00' : '#ffaa00';
+                        comboColor = flash;
+                    }
+                    ctx.fillStyle = comboColor;
+                    ctx.font = 'bold 1.5em Arial';
+                    ctx.fillText(`Combo: ${gameState.combo}`, 20, 85);
                 }
 
-                // HP Bar
+                // Последний результат hit (PERFECT / GOOD / BAD)
+                if (gameState.lastHitResult && gameState.gameTime - gameState.lastHitTime < 0.5) {
+                    const elapsed = gameState.gameTime - gameState.lastHitTime;
+                    const opacity = Math.max(0, 1 - elapsed / 0.5);
+                    
+                    ctx.globalAlpha = opacity;
+                    ctx.font = 'bold 50px Arial';
+                    
+                    let text = gameState.lastHitResult;
+                    let color = '#ffffff';
+                    
+                    if (gameState.lastHitResult === 'PERFECT') {
+                        color = '#00ff00';
+                    } else if (gameState.lastHitResult === 'GOOD') {
+                        color = '#ffff00';
+                    } else if (gameState.lastHitResult === 'BAD') {
+                        color = '#ff9900';
+                    }
+                    
+                    ctx.fillStyle = color;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(text, CONFIG.CANVAS_WIDTH / 2, 250);
+                    
+                    ctx.globalAlpha = 1.0;
+                }
+
+                // TASK 3: HP BAR (красный когда низко)
                 const hpBarWidth = 300;
                 const hpBarHeight = 30;
                 const hpBarX = CONFIG.CANVAS_WIDTH - hpBarWidth - 20;
                 const hpBarY = 20;
 
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                const hpPercentage = gameState.hp / CONFIG.MAX_HP;
+                const hpColor = hpPercentage > 0.5 ? '#00ff00' : hpPercentage > 0.2 ? '#ffff00' : '#ff0000';
+
+                ctx.fillStyle = '#333333';
                 ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
-
-                const hpWidth = (gameState.hp / CONFIG.MAX_HP) * hpBarWidth;
-                const hpColor = gameState.hp > 50 ? '#00ff00' : gameState.hp > 25 ? '#ffff00' : '#ff0000';
                 ctx.fillStyle = hpColor;
-                ctx.fillRect(hpBarX, hpBarY, hpWidth, hpBarHeight);
-
-                ctx.strokeStyle = '#ffffff';
+                ctx.fillRect(hpBarX, hpBarY, hpBarWidth * hpPercentage, hpBarHeight);
+                ctx.strokeStyle = hpColor;
                 ctx.lineWidth = 2;
                 ctx.strokeRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
 
-                ctx.font = 'bold 16px Arial';
                 ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 1em Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText('HP', hpBarX + hpBarWidth / 2, hpBarY + hpBarHeight / 2 + 6);
+                ctx.fillText(`HP: ${Math.ceil(gameState.hp)}/${CONFIG.MAX_HP}`, hpBarX + hpBarWidth / 2, hpBarY + hpBarHeight / 2 + 6);
             }
         }
 
