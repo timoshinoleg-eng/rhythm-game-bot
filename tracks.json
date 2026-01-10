@@ -1,0 +1,12 @@
+[
+  {
+    "id": 1,
+    "title": "Хочу перемен",
+    "artist": "Виктор Цой",
+    "bpm": 140,
+    "duration": 180,
+    "filename": "track1.mp3",
+    "genre": "Rock",
+    "difficulty": "medium"
+  }
+]

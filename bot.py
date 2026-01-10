@@ -5,11 +5,12 @@ import logging
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from pathlib import Path
+from typing import Optional, Dict, Any, List
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -31,6 +32,13 @@ FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:8000')
 
 if not TELEGRAM_BOT_TOKEN:
     raise ValueError("TELEGRAM_BOT_TOKEN не установлен в переменных окружения")
+
+# Music configuration
+MUSIC_FOLDER = "music"  # Папка с MP3 файлами
+TRACKS_METADATA_FILE = "tracks.json"  # Метаданные треков
+
+# Ensure music folder exists
+os.makedirs(MUSIC_FOLDER, exist_ok=True)
 
 # Global Application instance - will be initialized in lifespan
 application: Optional[Application] = None
@@ -194,6 +202,114 @@ class Database:
         return rank
 
 db = Database(DATABASE_URL)
+
+class MusicManager:
+    """Управление музыкальными треками"""
+    
+    def __init__(self):
+        self.tracks_file = TRACKS_METADATA_FILE
+        self.music_folder = MUSIC_FOLDER
+        self.tracks = self.load_tracks()
+    
+    def load_tracks(self) -> List[Dict]:
+        """Загрузить метаданные треков из JSON"""
+        if not os.path.exists(self.tracks_file):
+            # Создать дефолтный tracks.json
+            default_tracks = [
+                {
+                    "id": 1,
+                    "title": "Electronic Dreams",
+                    "artist": "FMA Artist",
+                    "bpm": 140,
+                    "duration": 120,
+                    "filename": "track1.mp3",
+                    "genre": "Electronic",
+                    "difficulty": "medium"
+                },
+                {
+                    "id": 2,
+                    "title": "Fast Beat",
+                    "artist": "FMA Artist",
+                    "bpm": 170,
+                    "duration": 90,
+                    "filename": "track2.mp3",
+                    "genre": "Dance",
+                    "difficulty": "hard"
+                },
+                {
+                    "id": 3,
+                    "title": "Chill Vibes",
+                    "artist": "FMA Artist",
+                    "bpm": 100,
+                    "duration": 150,
+                    "filename": "track3.mp3",
+                    "genre": "Ambient",
+                    "difficulty": "easy"
+                }
+            ]
+            
+            with open(self.tracks_file, 'w', encoding='utf-8') as f:
+                json.dump(default_tracks, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"📁 Created default {self.tracks_file}")
+            return default_tracks
+        
+        with open(self.tracks_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    
+    def get_all_tracks(self) -> List[Dict]:
+        """Получить все доступные треки"""
+        available_tracks = []
+        
+        for track in self.tracks:
+            # Проверяем наличие файла
+            file_path = os.path.join(self.music_folder, track['filename'])
+            track_copy = track.copy()
+            track_copy['available'] = os.path.exists(file_path)
+            track_copy['url'] = f"/music/{track['filename']}" if track_copy['available'] else None
+            available_tracks.append(track_copy)
+        
+        return available_tracks
+    
+    def get_track_by_id(self, track_id: int) -> Optional[Dict]:
+        """Получить трек по ID"""
+        for track in self.tracks:
+            if track['id'] == track_id:
+                file_path = os.path.join(self.music_folder, track['filename'])
+                track_copy = track.copy()
+                track_copy['available'] = os.path.exists(file_path)
+                track_copy['url'] = f"/music/{track['filename']}" if track_copy['available'] else None
+                return track_copy
+        return None
+    
+    def add_track(self, title: str, artist: str, bpm: int, duration: int, 
+                  filename: str, genre: str = "Unknown", difficulty: str = "medium") -> Dict:
+        """Добавить новый трек"""
+        new_id = max([t['id'] for t in self.tracks], default=0) + 1
+        
+        new_track = {
+            "id": new_id,
+            "title": title,
+            "artist": artist,
+            "bpm": bpm,
+            "duration": duration,
+            "filename": filename,
+            "genre": genre,
+            "difficulty": difficulty
+        }
+        
+        self.tracks.append(new_track)
+        self.save_tracks()
+        
+        return new_track
+    
+    def save_tracks(self):
+        """Сохранить метаданные в JSON"""
+        with open(self.tracks_file, 'w', encoding='utf-8') as f:
+            json.dump(self.tracks, f, ensure_ascii=False, indent=2)
+
+# Инициализация MusicManager
+music_manager = MusicManager()
 
 def generate_jwt_token(user_id: int) -> str:
     payload = {
@@ -454,6 +570,77 @@ async def analytics(request: Request) -> JSONResponse:
             content={"status": "error", "message": "Internal server error"},
             status_code=500,
         )
+
+# ============================================================================
+# MUSIC API ENDPOINTS
+# ============================================================================
+
+@app.get("/api/tracks")
+async def get_tracks():
+    """Получить список всех доступных треков"""
+    tracks = music_manager.get_all_tracks()
+    return {
+        "success": True,
+        "tracks": tracks,
+        "total": len(tracks)
+    }
+
+@app.get("/api/tracks/{track_id}")
+async def get_track(track_id: int):
+    """Получить информацию о треке по ID"""
+    track = music_manager.get_track_by_id(track_id)
+    
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    
+    return {
+        "success": True,
+        "track": track
+    }
+
+@app.get("/music/{filename}")
+async def serve_music(filename: str):
+    """Раздача MP3 файлов"""
+    file_path = os.path.join(MUSIC_FOLDER, filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Music file not found")
+    
+    return FileResponse(
+        file_path,
+        media_type="audio/mpeg",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=3600"
+        }
+    )
+
+@app.post("/api/admin/tracks")
+async def add_new_track(
+    title: str,
+    artist: str,
+    bpm: int,
+    duration: int,
+    filename: str,
+    genre: str = "Unknown",
+    difficulty: str = "medium"
+):
+    """Добавить новый трек (для админов)"""
+    track = music_manager.add_track(
+        title=title,
+        artist=artist,
+        bpm=bpm,
+        duration=duration,
+        filename=filename,
+        genre=genre,
+        difficulty=difficulty
+    )
+    
+    return {
+        "success": True,
+        "track": track,
+        "message": f"Track '{title}' added successfully"
+    }
 
 @app.get("/health")
 async def health_check() -> JSONResponse:

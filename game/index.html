@@ -662,6 +662,7 @@
 
             <button class="button" id="startButton">START GAME</button>
             <button class="button" id="recalibrateButton">Recalibrate Audio</button>
+            <button class="button" id="fullscreenButton">🖥️ Fullscreen</button>
         </div>
 
         <!-- Pause Screen -->
@@ -756,7 +757,7 @@
 
             // Notes
             NOTE_RADIUS: 40,
-            NOTE_SPEED: 6,
+            NOTE_SPEED: 4,  // Уменьшено с 6 до 4 для более комфортной игры
             HIT_ZONE_Y: 1050,
             HIT_ZONE_HEIGHT: 100,
 
@@ -1387,6 +1388,7 @@
                 document.getElementById('playAgainButton').addEventListener('click', () => this.startGame());
                 document.getElementById('menuButton').addEventListener('click', () => this.quitToMenu());
                 document.getElementById('recalibrateButton').addEventListener('click', () => this.startCalibration());
+                document.getElementById('fullscreenButton').addEventListener('click', () => this.toggleFullscreen());
                 document.getElementById('skipCalibration').addEventListener('click', () => this.skipCalibration());
                 document.getElementById('tapZone').addEventListener('click', () => this.handleCalibrationTap());
                 document.getElementById('testSoundButton').addEventListener('click', () => this.testSound());
@@ -1594,6 +1596,32 @@
 
                 if (navigator.vibrate) {
                     navigator.vibrate([100, 50, 100]);
+                }
+            }
+
+            // === FULLSCREEN ===
+            toggleFullscreen() {
+                if (!document.fullscreenElement) {
+                    // Enter fullscreen
+                    const elem = document.documentElement;
+                    if (elem.requestFullscreen) {
+                        elem.requestFullscreen();
+                    } else if (elem.webkitRequestFullscreen) { // Safari
+                        elem.webkitRequestFullscreen();
+                    } else if (elem.msRequestFullscreen) { // IE11
+                        elem.msRequestFullscreen();
+                    }
+                    console.log('✅ Entered fullscreen');
+                } else {
+                    // Exit fullscreen
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    } else if (document.webkitExitFullscreen) {
+                        document.webkitExitFullscreen();
+                    } else if (document.msExitFullscreen) {
+                        document.msExitFullscreen();
+                    }
+                    console.log('✅ Exited fullscreen');
                 }
             }
 
@@ -1844,9 +1872,18 @@
                 // Fire-and-forget analytics
                 this.sendAnalytics(payload);
                 
-                // Game result for leaderboard requires token
+                // ВАЖНО: Проверка токена
                 if (!GAME_TOKEN) {
-                    console.warn('No JWT token found in URL, skipping /api/game-result');
+                    console.warn('⚠️ No JWT token - score will not be saved to leaderboard');
+                    hideLoading();
+
+                    // Показываем предупреждение вместо ошибки
+                    const messageElement = document.getElementById('backendMessage');
+                    const messageText = document.getElementById('messageText');
+                    if (messageElement && messageText) {
+                        messageText.textContent = '⚠️ Playing without Telegram bot - score not saved';
+                        messageElement.style.display = 'block';
+                    }
                     return;
                 }
                 
@@ -1861,7 +1898,9 @@
                 };
                 
                 try {
-                    const response = await fetch('/api/game-result', {
+                    // Полный URL с origin
+                    const baseUrl = window.location.origin;
+                    const response = await fetch(`${baseUrl}/api/game-result`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(scoreData)
@@ -2371,27 +2410,40 @@
             // ============================================
             async loadAvailableTracks() {
                 try {
-                    const response = await fetch('/api/tracks');
+                    const baseUrl = window.location.origin;
+                    const response = await fetch(`${baseUrl}/api/tracks`);
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+
                     const data = await response.json();
-                    
-                    if (data.success) {
+
+                    if (data.success && data.tracks && data.tracks.length > 0) {
                         gameState.availableTracks = data.tracks.filter(t => t.available);
-                        console.log(`📀 Loaded ${gameState.availableTracks.length} tracks`);
-                        
-                        // Update track selector UI if exists
+                        console.log(`✅ Loaded ${gameState.availableTracks.length} tracks`);
                         this.updateTrackSelector();
+                    } else {
+                        throw new Error('No tracks available');
                     }
                 } catch (error) {
-                    console.error('Error loading tracks:', error);
-                    // Fallback to default track
-                    gameState.availableTracks = [{
-                        id: 1,
-                        title: "Default Track",
-                        artist: "Unknown",
-                        bpm: 140,
-                        duration: 120,
-                        available: true
-                    }];
+                    console.error('❌ Error loading tracks:', error);
+
+                    // Fallback с реальными треками
+                    gameState.availableTracks = [
+                        {
+                            id: 1,
+                            title: 'Хочу перемен',
+                            artist: 'Виктор Цой',
+                            bpm: 140,
+                            duration: 180,
+                            filename: 'Viktor_Cojj_-_KHochu_peremen.mp3',
+                            available: true,
+                            url: '/music/Viktor_Cojj_-_KHochu_peremen.mp3'
+                        }
+                    ];
+
+                    this.updateTrackSelector();
                 }
             }
 
@@ -2428,21 +2480,53 @@
 
             async loadAudioFile(url) {
                 return new Promise((resolve, reject) => {
-                    if (!gameState.audioElement) {
-                        gameState.audioElement = new Audio();
-                        gameState.audioElement.addEventListener('canplaythrough', () => {
-                            gameState.audioLoaded = true;
-                            console.log('✅ Audio loaded and ready');
-                            resolve();
-                        });
-                        gameState.audioElement.addEventListener('error', (e) => {
-                            console.error('❌ Audio loading failed:', e);
-                            reject(e);
-                        });
-                    }
-                    
-                    gameState.audioElement.src = url;
-                    gameState.audioElement.load();
+                    // Создаем новый Audio элемент
+                    const audio = new Audio();
+
+                    // Обработчики событий ДО установки src
+                    const onCanPlay = () => {
+                        gameState.audioElement = audio;
+                        gameState.audioLoaded = true;
+                        console.log('✅ Audio loaded:', url);
+
+                        // Убираем слушатели
+                        audio.removeEventListener('canplaythrough', onCanPlay);
+                        audio.removeEventListener('error', onError);
+
+                        resolve();
+                    };
+
+                    const onError = (e) => {
+                        console.error('❌ Audio error:', url, e);
+
+                        // Убираем слушатели
+                        audio.removeEventListener('canplaythrough', onCanPlay);
+                        audio.removeEventListener('error', onError);
+
+                        reject(e);
+                    };
+
+                    audio.addEventListener('canplaythrough', onCanPlay, { once: true });
+                    audio.addEventListener('error', onError, { once: true });
+
+                    // Для мобильных устройств
+                    audio.preload = 'auto';
+                    audio.crossOrigin = 'anonymous';
+
+                    // Полный URL
+                    const fullUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+                    console.log('🎵 Loading audio:', fullUrl);
+
+                    audio.src = fullUrl;
+                    audio.load();
+
+                    // Timeout для случая когда аудио не грузится (5 сек)
+                    setTimeout(() => {
+                        if (!gameState.audioLoaded) {
+                            console.warn('⏱️ Audio load timeout, continuing anyway');
+                            resolve(); // Не блокируем игру
+                        }
+                    }, 5000);
                 });
             }
 
