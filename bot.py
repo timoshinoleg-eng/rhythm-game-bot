@@ -336,10 +336,12 @@ class MusicManager:
 # Инициализация MusicManager
 music_manager = MusicManager()
 
+from datetime import datetime, timedelta, timezone
+
 def generate_jwt_token(user_id: int) -> str:
     payload = {
         'user_id': user_id,
-        'exp': datetime.utcnow() + timedelta(hours=24)
+        'exp': datetime.now(timezone.utc) + timedelta(hours=24)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
 
