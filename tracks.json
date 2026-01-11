@@ -8,5 +8,15 @@
     "filename": "track1.mp3",
     "genre": "Rock",
     "difficulty": "medium"
+  },
+  {
+    "id": 2,
+    "title": "Лунная соната",
+    "artist": "Людвиг ван Бетховен",
+    "bpm": 60,
+    "duration": 180,
+    "filename": "Lyudvig_van_Betkhoven_-_Lunnaya_sonata.mp3",
+    "genre": "Classical",
+    "difficulty": "easy"
   }
 ]
