@@ -2021,6 +2021,114 @@
             }
         }
 
+// ============================================
+        // ЭТАП 7: SCORING ENGINE
+        // ============================================
+        class ScoringEngine {
+            constructor() {
+                this.score = 0;
+            }
+
+            recordMiss() {
+                // Placeholder for future logic
+            }
+        }
+
+        // ============================================
+        // ЭТАП 5: GAME UI
+        // ============================================
+        class GameUI {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+            }
+
+            update(gameState, comboSystem, healthSystem) {
+                // Update internal state if needed
+            }
+
+            draw() {
+                const ctx = this.ctx;
+
+                // TASK 3: Background для UI (полупрозрачный)
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+                ctx.fillRect(10, 10, 250, 100);
+                ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(10, 10, 250, 100);
+
+                // TASK 3: SCORE (большой и яркий)
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 2.5em Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText(`Score: ${Math.floor(gameState.score)}`, 20, 50);
+
+                // TASK 3: COMBO (желтый, мигает при высоком комбо)
+                if (gameState.combo > 0) {
+                    let comboColor = '#ffff00';
+                    if (gameState.combo > 10) {
+                        const flash = Math.sin(gameState.gameTime * 8) > 0 ? '#ffff00' : '#ffaa00';
+                        comboColor = flash;
+                    }
+                    ctx.fillStyle = comboColor;
+                    ctx.font = 'bold 1.5em Arial';
+                    ctx.fillText(`Combo: ${gameState.combo}`, 20, 85);
+                }
+
+                // ЭТАП 1: Последний результат hit (5 уровней)
+                if (gameState.lastHitResult && gameState.gameTime - gameState.lastHitTime < 0.5) {
+                    const elapsed = gameState.gameTime - gameState.lastHitTime;
+                    const opacity = Math.max(0, 1 - elapsed / 0.5);
+                    
+                    ctx.globalAlpha = opacity;
+                    ctx.font = 'bold 50px Arial';
+                    
+                    let text = gameState.lastHitResult;
+                    let color = '#ffffff';
+                    
+                    if (gameState.lastHitResult === 'PERFECT') {
+                        color = CONFIG.COLORS.PERFECT;
+                    } else if (gameState.lastHitResult === 'GREAT') {
+                        color = CONFIG.COLORS.GREAT;
+                    } else if (gameState.lastHitResult === 'GOOD') {
+                        color = CONFIG.COLORS.GOOD;
+                    } else if (gameState.lastHitResult === 'OKAY') {
+                        color = CONFIG.COLORS.OKAY;
+                    } else if (gameState.lastHitResult === 'MISS') {
+                        color = CONFIG.COLORS.MISS;
+                    }
+                    
+                    ctx.fillStyle = color;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(text, CONFIG.CANVAS_WIDTH / 2, 250);
+                    
+                    ctx.globalAlpha = 1.0;
+                }
+
+                // TASK 3: HP BAR (красный когда низко)
+                const hpBarWidth = 300;
+                const hpBarHeight = 30;
+                const hpBarX = CONFIG.CANVAS_WIDTH - hpBarWidth - 20;
+                const hpBarY = 20;
+
+                const hpPercentage = gameState.hp / CONFIG.MAX_HP;
+                const hpColor = hpPercentage > 0.5 ? '#00ff00' : hpPercentage > 0.2 ? '#ffff00' : '#ff0000';
+
+                ctx.fillStyle = '#333333';
+                ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+                ctx.fillStyle = hpColor;
+                ctx.fillRect(hpBarX, hpBarY, hpBarWidth * hpPercentage, hpBarHeight);
+                ctx.strokeStyle = hpColor;
+                ctx.lineWidth = 2;
+                ctx.strokeRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
+
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 1em Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(`HP: ${Math.ceil(gameState.hp)}/${CONFIG.MAX_HP}`, hpBarX + hpBarWidth / 2, hpBarY + hpBarHeight / 2 + 6);
+            }
+        }
+
         // ============================================
         // GAME CLASS
         // ============================================
@@ -3706,86 +3814,7 @@
                 }
             }
 
-            renderUI() {
-                const ctx = this.ctx;
 
-                // TASK 3: Background для UI (полупрозрачный)
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-                ctx.fillRect(10, 10, 250, 100);
-                ctx.strokeStyle = 'rgba(0, 255, 255, 0.5)';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(10, 10, 250, 100);
-
-                // TASK 3: SCORE (большой и яркий)
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 2.5em Arial';
-                ctx.textAlign = 'left';
-                ctx.fillText(`Score: ${Math.floor(gameState.score)}`, 20, 50);
-
-                // TASK 3: COMBO (желтый, мигает при высоком комбо)
-                if (gameState.combo > 0) {
-                    let comboColor = '#ffff00';
-                    if (gameState.combo > 10) {
-                        const flash = Math.sin(gameState.gameTime * 8) > 0 ? '#ffff00' : '#ffaa00';
-                        comboColor = flash;
-                    }
-                    ctx.fillStyle = comboColor;
-                    ctx.font = 'bold 1.5em Arial';
-                    ctx.fillText(`Combo: ${gameState.combo}`, 20, 85);
-                }
-
-                // ЭТАП 1: Последний результат hit (5 уровней)
-                if (gameState.lastHitResult && gameState.gameTime - gameState.lastHitTime < 0.5) {
-                    const elapsed = gameState.gameTime - gameState.lastHitTime;
-                    const opacity = Math.max(0, 1 - elapsed / 0.5);
-                    
-                    ctx.globalAlpha = opacity;
-                    ctx.font = 'bold 50px Arial';
-                    
-                    let text = gameState.lastHitResult;
-                    let color = '#ffffff';
-                    
-                    if (gameState.lastHitResult === 'PERFECT') {
-                        color = CONFIG.COLORS.PERFECT;
-                    } else if (gameState.lastHitResult === 'GREAT') {
-                        color = CONFIG.COLORS.GREAT;
-                    } else if (gameState.lastHitResult === 'GOOD') {
-                        color = CONFIG.COLORS.GOOD;
-                    } else if (gameState.lastHitResult === 'OKAY') {
-                        color = CONFIG.COLORS.OKAY;
-                    } else if (gameState.lastHitResult === 'MISS') {
-                        color = CONFIG.COLORS.MISS;
-                    }
-                    
-                    ctx.fillStyle = color;
-                    ctx.textAlign = 'center';
-                    ctx.fillText(text, CONFIG.CANVAS_WIDTH / 2, 250);
-                    
-                    ctx.globalAlpha = 1.0;
-                }
-
-                // TASK 3: HP BAR (красный когда низко)
-                const hpBarWidth = 300;
-                const hpBarHeight = 30;
-                const hpBarX = CONFIG.CANVAS_WIDTH - hpBarWidth - 20;
-                const hpBarY = 20;
-
-                const hpPercentage = gameState.hp / CONFIG.MAX_HP;
-                const hpColor = hpPercentage > 0.5 ? '#00ff00' : hpPercentage > 0.2 ? '#ffff00' : '#ff0000';
-
-                ctx.fillStyle = '#333333';
-                ctx.fillRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
-                ctx.fillStyle = hpColor;
-                ctx.fillRect(hpBarX, hpBarY, hpBarWidth * hpPercentage, hpBarHeight);
-                ctx.strokeStyle = hpColor;
-                ctx.lineWidth = 2;
-                ctx.strokeRect(hpBarX, hpBarY, hpBarWidth, hpBarHeight);
-
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 1em Arial';
-                ctx.textAlign = 'center';
-                ctx.fillText(`HP: ${Math.ceil(gameState.hp)}/${CONFIG.MAX_HP}`, hpBarX + hpBarWidth / 2, hpBarY + hpBarHeight / 2 + 6);
-            }
         }
 
         // ============================================
